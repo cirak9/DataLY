@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/*.xlsx
+output/*.xlsx
+data/backups/
+logs/*.log
+.DS_Store

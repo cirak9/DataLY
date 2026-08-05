@@ -1,0 +1,163 @@
+# session/session_generator.py — v6
+import os
+import re
+import pandas as pd
+from utils.categorizer import get_category
+from utils.logger import get_logger
+
+log = get_logger()
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+
+
+def _extract_per_box_from_unit(unit: str) -> int:
+    match = re.search(r"\((\d+)", str(unit))
+    if match:
+        return int(match.group(1))
+    return 1
+
+
+def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "") -> tuple[str, str]:
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
+    session_path = os.path.join(DATA_DIR, "session_template.xlsx")
+
+    df = df_clean.copy()
+
+    def calc_per_box(row) -> int:
+        pb = float(row.get("per_box", 0) or 0)
+        if pb > 1:
+            return int(pb)
+        return _extract_per_box_from_unit(str(row.get("unit", "")))
+
+    def _apply_discount(price: float, row) -> float:
+        disc = float(row.get("discount_pct", 0) or 0)
+        return round(price * (1 - disc), 3)
+
+    def calc_unit_cost(row) -> float:
+        boxes = float(row.get("boxes", 0) or 0)
+        per_box_int = calc_per_box(row)
+        total_units = boxes * per_box_int if per_box_int > 1 else boxes
+        total_p = _apply_discount(float(row.get("total_price", 0) or 0), row)
+        cost_p = _apply_discount(float(row.get("cost_price", 0) or 0), row)
+        if total_p > 0 and total_units > 0:
+            return round(total_p / total_units, 3)
+        if cost_p > 0:
+            return round(cost_p, 3)
+        return 0.0
+
+    def calc_total(row) -> float:
+        total_p = _apply_discount(float(row.get("total_price", 0) or 0), row)
+        if total_p > 0:
+            return round(total_p, 3)
+        boxes = float(row.get("boxes", 0) or 0)
+        cost_p = _apply_discount(float(row.get("cost_price", 0) or 0), row)
+        if boxes > 0 and cost_p > 0:
+            return round(boxes * cost_p, 3)
+        return 0.0
+
+    df["per_box_calc"] = df.apply(calc_per_box, axis=1)
+    df["unit_cost"] = df.apply(calc_unit_cost, axis=1)
+    df["الإجمالي"] = df.apply(calc_total, axis=1)
+
+    cats = df.apply(
+        lambda r: get_category(str(r.get("item_name", "")), str(r.get("category", ""))),
+        axis=1,
+    )
+    df["التصنيف الرئيسي"] = [c[0] for c in cats]
+    df["التصنيف الفرعي"] = [c[1] for c in cats]
+
+    if supplier_name:
+        df.insert(1, "المورد", supplier_name)
+
+    # الكمية بالفاتورة = عدد قطع مفردة (مؤكد من صاحب المشروع) — القسمة على ب_الصندوق
+    # تنتج رقم صناديق مرجعي، والكسور مقبولة ومتعمّدة، بدون أي تعديل.
+    def calc_box_count(row) -> float:
+        qty = float(row.get("boxes", 0) or 0)
+        pb_int = int(row.get("per_box_calc", 1) or 1)
+        if pb_int > 1 and qty > 0:
+            return round(qty / pb_int, 4)
+        return qty
+
+    df["الصندوق"] = df.apply(calc_box_count, axis=1)
+
+    INV_COLS = [
+        "item_id", "المورد" if supplier_name else None,
+        "item_name", "التصنيف الرئيسي", "التصنيف الفرعي",
+        "unit", "boxes", "per_box_calc", "الصندوق",
+        "unit_cost", "الإجمالي", "expiry_date", "supplier_item_code",
+    ]
+    inv_cols_final = [c for c in INV_COLS if c and c in df.columns]
+    df_inv = df[inv_cols_final].rename(columns={
+        "item_name": "اسم الصنف", "unit": "العبوة", "boxes": "العدد",
+        "per_box_calc": "ب_الصندوق", "unit_cost": "تكلفة الوحدة",
+        "expiry_date": "تاريخ الصلاحية",
+    })
+
+    writer_inv = pd.ExcelWriter(invoice_path, engine="xlsxwriter")
+    df_inv.to_excel(writer_inv, index=False, sheet_name="invoice_data")
+    wb = writer_inv.book
+    ws = writer_inv.sheets["invoice_data"]
+
+    hdr = wb.add_format({"bold": True, "bg_color": "#0969DA", "font_color": "#FFFFFF",
+                          "align": "center", "valign": "vcenter", "border": 1,
+                          "font_name": "Arial", "font_size": 11})
+    cell = wb.add_format({"align": "right", "valign": "vcenter", "border": 1,
+                           "font_name": "Arial", "font_size": 10})
+    num = wb.add_format({"align": "center", "valign": "vcenter", "border": 1,
+                          "font_name": "Arial", "font_size": 10, "num_format": "#,##0.000"})
+    alt = wb.add_format({"align": "right", "valign": "vcenter", "border": 1,
+                          "font_name": "Arial", "font_size": 10, "bg_color": "#F6F8FA"})
+
+    for ci, col in enumerate(df_inv.columns):
+        ws.write(0, ci, col, hdr)
+        ws.set_column(ci, ci, 18)
+        for ri, val in enumerate(df_inv[col]):
+            fmt = num if isinstance(val, float) and col not in ("التصنيف الرئيسي", "التصنيف الفرعي") else (
+                alt if ri % 2 == 0 else cell)
+            ws.write(ri + 1, ci, val, fmt)
+    writer_inv.close()
+
+    df_ses = pd.DataFrame({
+        "item_id": df["item_id"], "الصنف": df["item_name"],
+        "تكلفة الوحدة": df["unit_cost"], "الباركود": [""] * len(df),
+        "الصلاحية": [""] * len(df), "سعر البيع": [""] * len(df),
+    })
+
+    writer_ses = pd.ExcelWriter(session_path, engine="xlsxwriter")
+    df_ses.to_excel(writer_ses, index=False, sheet_name="جلسة_الاستلام")
+    wb2 = writer_ses.book
+    ws2 = writer_ses.sheets["جلسة_الاستلام"]
+
+    hdr2 = wb2.add_format({"bold": True, "bg_color": "#1A7F37", "font_color": "#FFFFFF",
+                            "align": "center", "valign": "vcenter", "border": 1,
+                            "font_name": "Arial", "font_size": 11})
+    locked = wb2.add_format({"align": "right", "valign": "vcenter", "border": 1,
+                              "font_name": "Arial", "font_size": 10, "bg_color": "#F6F8FA"})
+    cost_f = wb2.add_format({"align": "center", "valign": "vcenter", "border": 1,
+                              "font_name": "Arial", "font_size": 10,
+                              "bg_color": "#FFF8C5", "bold": True, "num_format": "#,##0.000"})
+    inp = wb2.add_format({"align": "center", "valign": "vcenter", "border": 1,
+                           "font_name": "Arial", "font_size": 10})
+    txt_f = wb2.add_format({"align": "center", "valign": "vcenter", "border": 1,
+                             "font_name": "Arial", "font_size": 10, "num_format": "@"})
+
+    col_cfg = [
+        ("item_id", 8, locked), ("الصنف", 36, locked),
+        ("تكلفة الوحدة", 16, cost_f), ("الباركود", 22, txt_f),
+        ("الصلاحية", 15, inp), ("سعر البيع", 14, inp),
+    ]
+    for ci, (col, w, fmt) in enumerate(col_cfg):
+        ws2.write(0, ci, col, hdr2)
+        ws2.set_column(ci, ci, w, fmt)
+        for ri, val in enumerate(df_ses[col]):
+            if col == "الباركود":
+                ws2.write_string(ri + 1, ci, "", txt_f)
+            else:
+                ws2.write(ri + 1, ci, val, fmt)
+    writer_ses.close()
+
+    log.info(f"invoice_data.xlsx → {invoice_path}")
+    log.info(f"session_template.xlsx → {session_path}")
+    return invoice_path, session_path
