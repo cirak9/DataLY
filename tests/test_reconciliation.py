@@ -181,16 +181,28 @@ def test_load_master_missing_name_column_raises_clear_error(tmp_path):
         load_master(str(path))
 
 
-def test_load_master_missing_barcode_column_still_loads_with_warning(tmp_path):
+def test_load_master_missing_barcode_column_raises_clear_error(tmp_path):
     df = pd.DataFrame({"اسم الصنف": ["أرز أبيض ممتاز 5 كجم"]})
     path = tmp_path / "master_no_barcode.xlsx"
     df.to_excel(path, index=False)
 
+    with pytest.raises(MasterDataError):
+        load_master(str(path))
+
+
+def test_load_master_recognizes_broad_synonym_headers(tmp_path):
+    # أسماء أعمدة بعيدة عن التسمية الافتراضية، للتأكد إن الموسوعة الواسعة تغطيها
+    df = pd.DataFrame({
+        "رمز المنتج": ["999111"],
+        "وصف المنتج": ["سكر ناعم 10 كجم"],
+    })
+    path = tmp_path / "master_synonyms.xlsx"
+    df.to_excel(path, index=False)
+
     result = load_master(str(path))
 
-    assert list(result.columns) == MASTER_COLUMNS
-    assert result.iloc[0]["اسم الصنف"] == "أرز أبيض ممتاز 5 كجم"
-    assert result.iloc[0]["الباركود"] == ""
+    assert result.iloc[0]["الباركود"] == "999111"
+    assert result.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم"
 
 
 def test_load_master_missing_file_returns_empty_frame(tmp_path):
