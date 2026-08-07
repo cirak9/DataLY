@@ -1,0 +1,222 @@
+# fusion/reconciliation.py — v6.1
+# خطوة توحيد الأصناف: تُستدعى بعد اكتمال جلسة التاجر، قبل merge_invoice_and_session().
+# تقارن اسم الصنف بـ invoice_data.xlsx مقابل قاعدة master_items.xlsx (عبر الباركود من
+# session_output.xlsx)، فتوحّد نفس الصنف اللي كل مورد يكتبه بصيغة مختلفة.
+import os
+import pandas as pd
+from rapidfuzz import fuzz, process
+from utils.logger import get_logger
+
+log = get_logger()
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+MASTER_ITEMS_PATH = os.path.join(DATA_DIR, "master_items.xlsx")
+REVIEW_PATH = os.path.join(DATA_DIR, "reconciliation_review.xlsx")
+
+MASTER_COLUMNS = ["الباركود", "اسم الصنف", "التصنيف الرئيسي", "التصنيف الفرعي"]
+CATEGORY_COLUMNS = ("التصنيف الرئيسي", "التصنيف الفرعي")
+
+# باركود مطابق لكن الاسم مختلف عن كذا → تحذير بدل استبدال أعمى (احتمال باركود مُدخل غلط).
+# الحد منخفض عمدًا: الباركود نفسه دليل هوية قوي، فنفس الصنف قد يُكتب بصيغ عربية مختلفة
+# كثيرًا (مثال: "أرز أبيض ممتاز 5 كجم" مقابل "رز ابيض فاخر 5ك" ≈ 63 بمقياس WRatio) —
+# الفحص هنا يلتقط فقط التعارض الحقيقي (صنف مختلف تمامًا وصل لنفس الباركود بالخطأ).
+CONFLICT_THRESHOLD = 45
+# لا يوجد باركود بالفاتورة → القبول بمطابقة الاسم التقريبية مقابل master فقط لو التشابه ≥ كذا.
+# الحد أعلى من CONFLICT_THRESHOLD لأنه بدون باركود لا يوجد مرساة هوية، فنطلب ثقة أعلى.
+FUZZY_MATCH_THRESHOLD = 60
+
+
+def _clean_str(val) -> str:
+    s = str(val).strip() if val is not None else ""
+    return "" if s.lower() in ("nan", "none") else s
+
+
+def load_master(path: str = MASTER_ITEMS_PATH) -> pd.DataFrame:
+    """يحمّل master_items.xlsx، أو جدول فاضي بنفس الأعمدة لو الملف مو موجود بعد (أول تشغيلة)."""
+    if os.path.exists(path):
+        df = pd.read_excel(path, dtype={"الباركود": str})
+        for col in MASTER_COLUMNS:
+            if col not in df.columns:
+                df[col] = ""
+        df["الباركود"] = df["الباركود"].apply(_clean_str)
+        for col in CATEGORY_COLUMNS + ("اسم الصنف",):
+            df[col] = df[col].apply(_clean_str)
+        return df[MASTER_COLUMNS]
+    return pd.DataFrame(columns=MASTER_COLUMNS)
+
+
+def save_master(df: pd.DataFrame, path: str = MASTER_ITEMS_PATH) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    df = df.drop_duplicates(subset=["الباركود"], keep="last").reset_index(drop=True)
+    df.to_excel(path, index=False)
+
+
+def save_review(rows: list, path: str = REVIEW_PATH) -> None:
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    pd.DataFrame(rows).to_excel(path, index=False)
+    log.warning(f"[مطابقة] {len(rows)} حالة تحتاج مراجعة بشرية → {path}")
+
+
+def reconcile_dataframes(
+    df_inv: pd.DataFrame,
+    df_ses: pd.DataFrame,
+    master_df: pd.DataFrame,
+    conflict_threshold: int = CONFLICT_THRESHOLD,
+    fuzzy_threshold: int = FUZZY_MATCH_THRESHOLD,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
+    """
+    يوحّد "اسم الصنف" (والتصنيف إن توفر) بـ df_inv مقابل master_df، بالاعتماد على
+    الباركود المُدخل بـ df_ses. يرجع (invoice محدّث، session محدّث، master محدّث، تحذيرات).
+
+    قواعد المطابقة:
+    - باركود موجود بـ master وتشابه الاسم مقبول  → استبدال بالاسم/التصنيف المعتمد.
+    - باركود موجود بـ master لكن الاسم مختلف كثيرًا → لا استبدال تلقائي، تحذير للمراجعة.
+    - باركود غير موجود بـ master                  → صنف جديد، يُضاف لأول مرة بنفس الاسم الحالي
+                                                       (بدون تحذير — هذا وضع طبيعي).
+    - بدون باركود إطلاقًا                          → fuzzy matching على الاسم كخط دفاع احتياطي فقط.
+    """
+    df_inv = df_inv.copy()
+    df_ses = df_ses.copy()
+    master_df = master_df.copy()
+    for col in MASTER_COLUMNS:
+        if col not in master_df.columns:
+            master_df[col] = ""
+
+    df_ses["الباركود"] = df_ses.get("الباركود", "").apply(_clean_str) if "الباركود" in df_ses.columns else ""
+    barcode_by_item = dict(zip(df_ses.get("item_id", []), df_ses.get("الباركود", [])))
+
+    master_by_barcode = {
+        row["الباركود"]: row for _, row in master_df.iterrows() if row["الباركود"]
+    }
+    known_names = master_df["اسم الصنف"].tolist()
+
+    review_rows: list = []
+    new_master_rows: list = []
+    canonical_barcode: dict = {}
+
+    for idx, inv_row in df_inv.iterrows():
+        item_id = inv_row["item_id"]
+        current_name = _clean_str(inv_row.get("اسم الصنف", ""))
+        barcode = barcode_by_item.get(item_id, "")
+
+        if barcode and barcode in master_by_barcode:
+            approved = master_by_barcode[barcode]
+            approved_name = approved["اسم الصنف"]
+            similarity = fuzz.WRatio(current_name, approved_name)
+
+            if similarity >= conflict_threshold:
+                df_inv.at[idx, "اسم الصنف"] = approved_name
+                for cat_col in CATEGORY_COLUMNS:
+                    approved_cat = approved.get(cat_col, "")
+                    if approved_cat:  # مرن: لو master ما فيه تصنيف معتمد، نبقي تصنيف categorizer.py
+                        df_inv.at[idx, cat_col] = approved_cat
+                canonical_barcode[item_id] = barcode
+            else:
+                review_rows.append({
+                    "item_id": item_id,
+                    "الباركود": barcode,
+                    "الاسم بالفاتورة": current_name,
+                    "الاسم المعتمد بقاعدة الأصناف": approved_name,
+                    "نسبة التشابه": similarity,
+                    "السبب": "الباركود مطابق لصنف معتمد لكن الاسم مختلف كثيرًا — "
+                             "تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد",
+                })
+                log.warning(
+                    f"[مطابقة] تعارض عند الباركود {barcode}: "
+                    f"'{current_name}' مقابل المعتمد '{approved_name}' (تشابه {similarity:.0f}%)"
+                )
+
+        elif barcode:
+            # باركود جديد تمامًا على master → يدخل لأول مرة بنفس الاسم المكتوب بالفاتورة (طبيعي، بدون تحذير)
+            new_master_rows.append({
+                "الباركود": barcode,
+                "اسم الصنف": current_name,
+                "التصنيف الرئيسي": _clean_str(inv_row.get("التصنيف الرئيسي", "")),
+                "التصنيف الفرعي": _clean_str(inv_row.get("التصنيف الفرعي", "")),
+            })
+            canonical_barcode[item_id] = barcode
+
+        elif known_names:
+            # لا باركود بالمرة → fallback: مطابقة تقريبية للاسم فقط، بدون ربط بباركود
+            match = process.extractOne(current_name, known_names, scorer=fuzz.WRatio)
+            if match and match[1] >= fuzzy_threshold:
+                matched_name = match[0]
+                matched_row = master_df[master_df["اسم الصنف"] == matched_name].iloc[0]
+                df_inv.at[idx, "اسم الصنف"] = matched_name
+                for cat_col in CATEGORY_COLUMNS:
+                    approved_cat = matched_row.get(cat_col, "")
+                    if approved_cat:
+                        df_inv.at[idx, cat_col] = approved_cat
+            # أقل من الحد → يُترك كما هو، صنف بلا مطابقة معروفة (طبيعي، بدون تحذير)
+
+    master_df = pd.concat([master_df, pd.DataFrame(new_master_rows, columns=MASTER_COLUMNS)],
+                           ignore_index=True) if new_master_rows else master_df
+
+    df_inv, df_ses = _merge_duplicate_barcodes(df_inv, df_ses, canonical_barcode)
+
+    return df_inv, df_ses, master_df, review_rows
+
+
+def _merge_duplicate_barcodes(df_inv: pd.DataFrame, df_ses: pd.DataFrame, canonical_barcode: dict):
+    """لو صفّين بنفس الفاتورة وصلوا لنفس الباركود المعتمد (نفس الصنف بصيغتين)، تُدمج لصف واحد."""
+    groups: dict = {}
+    for item_id, barcode in canonical_barcode.items():
+        groups.setdefault(barcode, []).append(item_id)
+
+    drop_ids = []
+    for barcode, ids in groups.items():
+        if len(ids) < 2:
+            continue
+        ids_sorted = sorted(ids)
+        keep_id = ids_sorted[0]
+        rows = df_inv[df_inv["item_id"].isin(ids_sorted)]
+
+        total_qty = pd.to_numeric(rows.get("العدد", 0), errors="coerce").fillna(0).sum()
+        total_boxes = pd.to_numeric(rows.get("الصندوق", 0), errors="coerce").fillna(0).sum()
+        total_amount = pd.to_numeric(rows.get("الإجمالي", 0), errors="coerce").fillna(0).sum()
+        new_unit_cost = round(total_amount / total_qty, 3) if total_qty else 0.0
+
+        keep_idx = df_inv.index[df_inv["item_id"] == keep_id][0]
+        df_inv.at[keep_idx, "العدد"] = total_qty
+        df_inv.at[keep_idx, "الصندوق"] = round(total_boxes, 4)
+        df_inv.at[keep_idx, "الإجمالي"] = round(total_amount, 3)
+        df_inv.at[keep_idx, "تكلفة الوحدة"] = new_unit_cost
+
+        drop_ids.extend(ids_sorted[1:])
+        log.info(f"[مطابقة] دمج {len(ids_sorted)} صف لنفس الباركود {barcode} بصنف واحد (item_id={keep_id})")
+
+    if drop_ids:
+        df_inv = df_inv[~df_inv["item_id"].isin(drop_ids)].reset_index(drop=True)
+        df_ses = df_ses[~df_ses["item_id"].isin(drop_ids)].reset_index(drop=True)
+
+    return df_inv, df_ses
+
+
+def reconcile() -> int:
+    """غلاف الملفات: يقرأ invoice_data/session_output/master_items من data/، يوحّد الأصناف،
+    يكتب الملفات المحدّثة، ويرجّع عدد التحذيرات (0 يعني لا شي يحتاج مراجعة يدوية)."""
+    invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
+    session_path = os.path.join(DATA_DIR, "session_output.xlsx")
+
+    if not os.path.exists(invoice_path):
+        raise FileNotFoundError(f"invoice_data.xlsx غير موجود في {DATA_DIR}")
+    if not os.path.exists(session_path):
+        raise FileNotFoundError(f"session_output.xlsx غير موجود في {DATA_DIR}")
+
+    df_inv = pd.read_excel(invoice_path)
+    df_ses = pd.read_excel(session_path, dtype={"الباركود": str})
+    df_inv["item_id"] = pd.to_numeric(df_inv["item_id"], errors="coerce").fillna(0).astype(int)
+    df_ses["item_id"] = pd.to_numeric(df_ses["item_id"], errors="coerce").fillna(0).astype(int)
+
+    master_df = load_master()
+    df_inv, df_ses, master_df, review_rows = reconcile_dataframes(df_inv, df_ses, master_df)
+
+    df_inv.to_excel(invoice_path, index=False)
+    df_ses.to_excel(session_path, index=False)
+    save_master(master_df)
+    save_review(review_rows)
+
+    log.info(f"[مطابقة] اكتمل توحيد الأصناف — {len(review_rows)} حالة تحتاج مراجعة")
+    return len(review_rows)
