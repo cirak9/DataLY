@@ -8,7 +8,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 from extractors.excel_extractor import extract_from_excel
 from transformers.base_cleaner import clean_data
 from session.session_generator import generate_session_files
-from fusion.reconciliation import reconcile
+from fusion.reconciliation import reconcile, MasterDataError
 from fusion.merge import merge_invoice_and_session, _backup_file
 from adapters.alsahl_adapter import export_to_alsahl
 from utils.validators import InvoiceValidationError
@@ -74,7 +74,7 @@ def process_merge():
             log.warning(f"⚠️ {review_count} حالة باركود متعارضة تحتاج مراجعتك — "
                         f"راجع data/reconciliation_review.xlsx قبل رفع ملف السهل")
         df_merged = merge_invoice_and_session()
-    except FileNotFoundError as e:
+    except (FileNotFoundError, MasterDataError) as e:
         log.error(str(e))
         return
 

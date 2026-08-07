@@ -16,6 +16,34 @@ REVIEW_PATH = os.path.join(DATA_DIR, "reconciliation_review.xlsx")
 MASTER_COLUMNS = ["الباركود", "اسم الصنف", "التصنيف الرئيسي", "التصنيف الفرعي"]
 CATEGORY_COLUMNS = ("التصنيف الرئيسي", "التصنيف الفرعي")
 
+# كل متجر يجيك ملف قاعدة أصنافه بتسمية أعمدة مختلفة شوي حسب منظومته (السهل يسمي
+# الباركود "الكود" والاسم "الوصف" مثلاً بملفات فاتورة مشتريات الحقيقية). نفس أسلوب
+# POSSIBLE_COLUMNS بـ extractors/excel_extractor.py — قائمة واسعة تُعدَّل كل ما جربنا
+# ملف حقيقي جديد من متجر/منظومة مختلفة.
+MASTER_POSSIBLE_COLUMNS = {
+    "الباركود": [
+        "الباركود", "باركود", "الكود", "كود", "كود الصنف", "رمز الصنف", "الرمز",
+        "barcode", "code", "sku", "item code", "product code", "upc",
+    ],
+    "اسم الصنف": [
+        "اسم الصنف", "الاسم", "اسم المنتج", "اسم المادة", "الوصف", "البيان", "المادة",
+        "name", "item name", "product name", "description",
+    ],
+    "التصنيف الرئيسي": [
+        "التصنيف الرئيسي", "التصنيف", "الفئة الرئيسية", "الفئة", "رئيسي", "القسم",
+        "category", "main category", "group",
+    ],
+    "التصنيف الفرعي": [
+        "التصنيف الفرعي", "الفئة الفرعية", "فرعي", "القسم الفرعي",
+        "sub category", "subcategory", "sub-category",
+    ],
+}
+
+
+class MasterDataError(Exception):
+    """يُرفع لو ملف master_items.xlsx ما فيه عمود يمكن التعرّف عليه كاسم للصنف."""
+    pass
+
 # باركود مطابق لكن الاسم مختلف عن كذا → تحذير بدل استبدال أعمى (احتمال باركود مُدخل غلط).
 # الحد منخفض عمدًا: الباركود نفسه دليل هوية قوي، فنفس الصنف قد يُكتب بصيغ عربية مختلفة
 # كثيرًا (مثال: "أرز أبيض ممتاز 5 كجم" مقابل "رز ابيض فاخر 5ك" ≈ 63 بمقياس WRatio) —
@@ -31,18 +59,66 @@ def _clean_str(val) -> str:
     return "" if s.lower() in ("nan", "none") else s
 
 
+def _find_column(df_columns: list, possible_names: list, already_used: set):
+    """يبحث عن عمود مطابق تمامًا أول، وإلا مطابقة جزئية — بنفس أسلوب _find_column
+    بـ transformers/base_cleaner.py، مطبّق هنا على أسماء أعمدة master منفصلة عمدًا
+    (نطاق دلالي مختلف عن أعمدة الفاتورة)."""
+    for hint in possible_names:
+        for col in df_columns:
+            if col in already_used:
+                continue
+            if hint.lower() == str(col).strip().lower():
+                return col
+    for hint in possible_names:
+        for col in df_columns:
+            if col in already_used:
+                continue
+            if hint.lower() in str(col).strip().lower():
+                return col
+    return None
+
+
 def load_master(path: str = MASTER_ITEMS_PATH) -> pd.DataFrame:
-    """يحمّل master_items.xlsx، أو جدول فاضي بنفس الأعمدة لو الملف مو موجود بعد (أول تشغيلة)."""
-    if os.path.exists(path):
-        df = pd.read_excel(path, dtype={"الباركود": str})
-        for col in MASTER_COLUMNS:
-            if col not in df.columns:
-                df[col] = ""
-        df["الباركود"] = df["الباركود"].apply(_clean_str)
-        for col in CATEGORY_COLUMNS + ("اسم الصنف",):
-            df[col] = df[col].apply(_clean_str)
-        return df[MASTER_COLUMNS]
-    return pd.DataFrame(columns=MASTER_COLUMNS)
+    """
+    يحمّل master_items.xlsx، أو جدول فاضي بنفس الأعمدة لو الملف مو موجود بعد (أول تشغيلة).
+    يتعرّف تلقائيًا على أسماء الأعمدة الحقيقية (زي "الكود"/"الوصف" بمنظومة السهل) بدل
+    افتراض تسمية ثابتة، لأن كل متجر يجيك ملفه بتسمية مختلفة حسب منظومته.
+    """
+    if not os.path.exists(path):
+        return pd.DataFrame(columns=MASTER_COLUMNS)
+
+    df = pd.read_excel(path, dtype=str)
+    df.columns = df.columns.astype(str).str.strip()
+
+    already_used: set = set()
+    rename_map: dict = {}
+    for standard_col, hints in MASTER_POSSIBLE_COLUMNS.items():
+        found = _find_column(list(df.columns), hints, already_used)
+        if found:
+            rename_map[found] = standard_col
+            already_used.add(found)
+    df = df.rename(columns=rename_map)
+
+    if "اسم الصنف" not in df.columns:
+        raise MasterDataError(
+            "تعذّر إيجاد عمود اسم الصنف بملف master_items.xlsx. "
+            "تأكد إن رأس الجدول فيه أحد هذي الأسماء: "
+            "'اسم الصنف' / 'الاسم' / 'الوصف' / 'اسم المنتج'. "
+            "لو اسم العمود عندك مختلف، أضفه لقائمة "
+            "MASTER_POSSIBLE_COLUMNS['اسم الصنف'] بملف fusion/reconciliation.py."
+        )
+    if "الباركود" not in df.columns:
+        log.warning(
+            "[مطابقة] ملف master_items.xlsx بدون عمود باركود واضح — "
+            "المطابقة ستعتمد فقط على تشابه الاسم (fuzzy) لكل أصناف هذا الملف."
+        )
+
+    for col in MASTER_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].apply(_clean_str)
+
+    return df[MASTER_COLUMNS]
 
 
 def save_master(df: pd.DataFrame, path: str = MASTER_ITEMS_PATH) -> None:

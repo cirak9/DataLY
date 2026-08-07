@@ -1,7 +1,8 @@
 import sys, os
 import pandas as pd
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from fusion.reconciliation import reconcile_dataframes, MASTER_COLUMNS
+from fusion.reconciliation import reconcile_dataframes, load_master, MasterDataError, MASTER_COLUMNS
 
 
 def _inv(rows):
@@ -149,3 +150,50 @@ def test_duplicate_items_same_barcode_are_merged_and_totals_summed():
     assert row["تكلفة الوحدة"] == round(70.0 / 14, 3)
     assert len(out_ses) == 1
     assert warnings == []
+
+
+def test_load_master_detects_alsahl_style_headers(tmp_path):
+    # نفس تسمية أعمدة منظومة السهل الحقيقية بملف "فاتورة مشتريات": الكود = باركود، الوصف = الاسم
+    df = pd.DataFrame({
+        "الكود": ["47960025", "12345678"],
+        "الوصف": ["شاي الزهرة الذهبية", "أرز أبيض ممتاز 5 كجم"],
+        "رئيسي": ["مواد غذائية", "مواد غذائية"],
+        "فرعي": ["شاي وقهوة", "أرز وحبوب"],
+    })
+    path = tmp_path / "master_alsahl.xlsx"
+    df.to_excel(path, index=False)
+
+    result = load_master(str(path))
+
+    assert list(result.columns) == MASTER_COLUMNS
+    assert result.iloc[0]["الباركود"] == "47960025"
+    assert result.iloc[0]["اسم الصنف"] == "شاي الزهرة الذهبية"
+    assert result.iloc[0]["التصنيف الرئيسي"] == "مواد غذائية"
+    assert result.iloc[1]["التصنيف الفرعي"] == "أرز وحبوب"
+
+
+def test_load_master_missing_name_column_raises_clear_error(tmp_path):
+    df = pd.DataFrame({"الكود": ["123"], "السعر": [5.0]})
+    path = tmp_path / "master_broken.xlsx"
+    df.to_excel(path, index=False)
+
+    with pytest.raises(MasterDataError):
+        load_master(str(path))
+
+
+def test_load_master_missing_barcode_column_still_loads_with_warning(tmp_path):
+    df = pd.DataFrame({"اسم الصنف": ["أرز أبيض ممتاز 5 كجم"]})
+    path = tmp_path / "master_no_barcode.xlsx"
+    df.to_excel(path, index=False)
+
+    result = load_master(str(path))
+
+    assert list(result.columns) == MASTER_COLUMNS
+    assert result.iloc[0]["اسم الصنف"] == "أرز أبيض ممتاز 5 كجم"
+    assert result.iloc[0]["الباركود"] == ""
+
+
+def test_load_master_missing_file_returns_empty_frame(tmp_path):
+    result = load_master(str(tmp_path / "no_such_file.xlsx"))
+    assert list(result.columns) == MASTER_COLUMNS
+    assert result.empty
