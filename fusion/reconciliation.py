@@ -90,18 +90,22 @@ def _extract_size(name: str):
     return value * _VOLUME_UNITS[unit], "volume"
 
 
-def _sizes_conflict(name_a: str, name_b: str) -> bool:
-    """True فقط لو استخرجنا حجمًا من الاسمين، بنفس الفئة (وزن مع وزن، حجم مع حجم)،
-    والفرق بينهم يتعدى SIZE_MISMATCH_RATIO. غموض أو تعذّر الاستخراج = لا تعارض (نعتمد
-    عندها على WRatio وحده، تفاديًا لإنذارات كاذبة من حالات ما نقدر نجزم فيها)."""
+def _size_conflict_reason(name_a: str, name_b: str) -> str:
+    """يرجع سبب تعارض الحجم/الوزن لو موجود، أو "" لو ما فيه تعارض. غموض أو تعذّر
+    استخراج حجم من أحد الاسمين = بلا تعارض (نعتمد عندها على WRatio وحده، تفاديًا
+    لإنذارات كاذبة من حالات ما نقدر نجزم فيها)."""
     size_a, size_b = _extract_size(name_a), _extract_size(name_b)
     if not size_a or not size_b:
-        return False
+        return ""
     val_a, cat_a = size_a
     val_b, cat_b = size_b
-    if cat_a != cat_b or val_a == 0 or val_b == 0:
-        return False
-    return max(val_a, val_b) / min(val_a, val_b) >= SIZE_MISMATCH_RATIO
+    if cat_a != cat_b:
+        # نوع القياس نفسه مختلف (وزن مقابل حجم) — ما نقدر نقارن الأرقام رياضيًا،
+        # لكن الاختلاف بحد ذاته مؤشر شك كافٍ يستاهل مراجعة بشرية.
+        return "نوع القياس نفسه مختلف بين الاسمين (وزن مقابل حجم) — راجع يدويًا للتأكد إنه نفس الصنف"
+    if val_a and val_b and max(val_a, val_b) / min(val_a, val_b) >= SIZE_MISMATCH_RATIO:
+        return "الحجم/الوزن مختلف كليًا (مو مجرد صياغة مختلفة)"
+    return ""
 
 
 def _clean_str(val) -> str:
@@ -236,9 +240,9 @@ def reconcile_dataframes(
             approved = master_by_barcode[barcode]
             approved_name = approved["اسم الصنف"]
             similarity = fuzz.WRatio(current_name, approved_name)
-            size_mismatch = _sizes_conflict(current_name, approved_name)
+            size_reason = _size_conflict_reason(current_name, approved_name)
 
-            if similarity >= conflict_threshold and not size_mismatch:
+            if similarity >= conflict_threshold and not size_reason:
                 df_inv.at[idx, "اسم الصنف"] = approved_name
                 for cat_col in CATEGORY_COLUMNS:
                     approved_cat = approved.get(cat_col, "")
@@ -247,9 +251,9 @@ def reconcile_dataframes(
                 canonical_barcode[item_id] = barcode
             else:
                 reason = (
-                    "الباركود مطابق لصنف معتمد لكن الحجم/الوزن مختلف كليًا "
-                    "(مو مجرد صياغة مختلفة) — تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد"
-                    if size_mismatch else
+                    f"الباركود مطابق لصنف معتمد لكن {size_reason} — "
+                    "تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد"
+                    if size_reason else
                     "الباركود مطابق لصنف معتمد لكن الاسم مختلف كثيرًا — "
                     "تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد"
                 )
@@ -264,7 +268,7 @@ def reconcile_dataframes(
                 log.warning(
                     f"[مطابقة] تعارض عند الباركود {barcode}: "
                     f"'{current_name}' مقابل المعتمد '{approved_name}' "
-                    f"(تشابه {similarity:.0f}%{'، فرق حجم كبير' if size_mismatch else ''})"
+                    f"(تشابه {similarity:.0f}%{f'، {size_reason}' if size_reason else ''})"
                 )
 
         elif barcode:
@@ -280,7 +284,7 @@ def reconcile_dataframes(
         elif known_names:
             # لا باركود بالمرة → fallback: مطابقة تقريبية للاسم فقط، بدون ربط بباركود
             match = process.extractOne(current_name, known_names, scorer=fuzz.WRatio)
-            if match and match[1] >= fuzzy_threshold and not _sizes_conflict(current_name, match[0]):
+            if match and match[1] >= fuzzy_threshold and not _size_conflict_reason(current_name, match[0]):
                 matched_name = match[0]
                 matched_row = master_df[master_df["اسم الصنف"] == matched_name].iloc[0]
                 df_inv.at[idx, "اسم الصنف"] = matched_name
@@ -333,9 +337,66 @@ def _merge_duplicate_barcodes(df_inv: pd.DataFrame, df_ses: pd.DataFrame, canoni
     return df_inv, df_ses
 
 
+def resolve_conflicts_interactively(
+    df_inv: pd.DataFrame, master_df: pd.DataFrame, review_rows: list
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    تعرض كل حالة تعارض بالطرفية وتطلب قرار فوري: إكمال بالاسم الحالي بالفاتورة، أو
+    كتابة الاسم الصحيح يدويًا الآن. التسمية اليدوية تُحدَّث بكل من الفاتورة الحالية
+    و master_items.xlsx (نفس فلسفة "يُصنَّف مرة وحدة ويُحفظ للأبد" — لو صححته الآن،
+    ما يرجع يسألك عنه بالفاتورة الجاية بنفس الباركود).
+
+    دالة منفصلة عمدًا عن reconcile_dataframes() (اللي تبقى pure/قابلة للاختبار بدون
+    تدخل بشري) — تُستدعى فقط من reconcile() بالتشغيل الحقيقي.
+
+    لو ما فيه طرفية تفاعلية (تشغيل آلي/غير تفاعلي)، تُكمل تلقائيًا بالاسم الأصلي بدل
+    ما تعلّق بانتظار إدخال ما راح يجي.
+    """
+    if not review_rows:
+        return df_inv, master_df
+
+    df_inv = df_inv.copy()
+    master_df = master_df.copy()
+
+    for row in review_rows:
+        item_id, barcode = row["item_id"], row["الباركود"]
+        print(f"\n⚠️  تعارض بالباركود {barcode}:")
+        print(f"   بالفاتورة: {row['الاسم بالفاتورة']}")
+        print(f"   المعتمد بقاعدة الأصناف: {row['الاسم المعتمد بقاعدة الأصناف']}")
+        print(f"   السبب: {row['السبب']}")
+
+        try:
+            choice = input(
+                "   [1] إكمال بالاسم الحالي بالفاتورة   [2] كتابة الاسم الصحيح يدويًا الآن\n"
+                "   اختر (1/2) [افتراضي 1]: "
+            ).strip()
+        except EOFError:
+            choice = ""  # تشغيل غير تفاعلي — أكمل بالاسم الأصلي بدل ما تعلّق
+
+        if choice == "2":
+            try:
+                manual_name = input("   اكتب الاسم الصحيح المعتمد: ").strip()
+            except EOFError:
+                manual_name = ""
+            if manual_name:
+                inv_idx = df_inv.index[df_inv["item_id"] == item_id][0]
+                df_inv.at[inv_idx, "اسم الصنف"] = manual_name
+                master_idx = master_df.index[master_df["الباركود"] == barcode]
+                if len(master_idx):
+                    master_df.at[master_idx[0], "اسم الصنف"] = manual_name
+                row["القرار"] = f"تسمية يدوية: {manual_name}"
+                log.info(f"[مطابقة] تسمية يدوية اعتُمدت للباركود {barcode}: '{manual_name}' (وتحدّث master)")
+                continue
+
+        row["القرار"] = "إكمال بالاسم الأصلي بالفاتورة"
+
+    return df_inv, master_df
+
+
 def reconcile() -> int:
     """غلاف الملفات: يقرأ invoice_data/session_output/master_items من data/، يوحّد الأصناف،
-    يكتب الملفات المحدّثة، ويرجّع عدد التحذيرات (0 يعني لا شي يحتاج مراجعة يدوية)."""
+    يعرض أي تعارض بالطرفية لقرار فوري (إكمال أو تسمية يدوية)، يكتب الملفات المحدّثة،
+    ويرجّع عدد التعارضات اللي ظهرت (0 يعني لا شي احتاج مراجعة)."""
     invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
     session_path = os.path.join(DATA_DIR, "session_output.xlsx")
 
@@ -351,6 +412,7 @@ def reconcile() -> int:
 
     master_df = load_master()
     df_inv, df_ses, master_df, review_rows = reconcile_dataframes(df_inv, df_ses, master_df)
+    df_inv, master_df = resolve_conflicts_interactively(df_inv, master_df, review_rows)
 
     df_inv.to_excel(invoice_path, index=False)
     df_ses.to_excel(session_path, index=False)

@@ -2,7 +2,10 @@ import sys, os
 import pandas as pd
 import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from fusion.reconciliation import reconcile_dataframes, load_master, MasterDataError, MASTER_COLUMNS
+from fusion.reconciliation import (
+    reconcile_dataframes, load_master, resolve_conflicts_interactively,
+    MasterDataError, MASTER_COLUMNS,
+)
 
 
 def _inv(rows):
@@ -204,6 +207,80 @@ def test_missing_barcode_fuzzy_match_skipped_when_size_differs():
 
     assert out_inv.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم"  # ما تطابق رغم تشابه الاسم
     assert warnings == []  # فشل fuzzy fallback بدون باركود لا يستحق تحذير (طبيعي)
+
+
+def test_barcode_match_with_different_unit_category_is_flagged():
+    # نفس الحالة الحقيقية الثانية: "5 كجم" (وزن) مقابل "250 مل" (حجم) — نوع قياس مختلف
+    # كليًا، ما نقدر نقارن الأرقام رياضيًا، لكن الاختلاف بحد ذاته مؤشر شك.
+    df_inv = _inv([{
+        "item_id": 1, "اسم الصنف": "مسحوق غسيل أوتوماتيك 5 كجم", "التصنيف الرئيسي": "منظفات منزلية",
+        "التصنيف الفرعي": "أخرى", "العدد": 90, "الصندوق": 1, "تكلفة الوحدة": 41.4, "الإجمالي": 3726.0,
+    }])
+    df_ses = _ses([{"item_id": 1, "الباركود": "6289000000422"}])
+    master = _master([{
+        "الباركود": "6289000000422", "اسم الصنف": "مساحيق غسيل التميز 250 مل",
+        "التصنيف الرئيسي": "منظفات", "التصنيف الفرعي": "مساحيق غسيل",
+    }])
+
+    out_inv, _, _, warnings = reconcile_dataframes(df_inv, df_ses, master)
+
+    assert out_inv.iloc[0]["اسم الصنف"] == "مسحوق غسيل أوتوماتيك 5 كجم"
+    assert len(warnings) == 1
+    assert "قياس" in warnings[0]["السبب"]
+
+
+def test_resolve_conflicts_default_keeps_original_name(monkeypatch):
+    df_inv = _inv([{"item_id": 1, "اسم الصنف": "سكر ناعم 10 كجم"}])
+    master = _master([{"الباركود": "123", "اسم الصنف": "سكر التميز 1 كغ"}])
+    review_rows = [{
+        "item_id": 1, "الباركود": "123", "الاسم بالفاتورة": "سكر ناعم 10 كجم",
+        "الاسم المعتمد بقاعدة الأصناف": "سكر التميز 1 كغ", "نسبة التشابه": 67,
+        "السبب": "اختلاف حجم",
+    }]
+
+    monkeypatch.setattr("builtins.input", lambda *_: "1")
+    out_inv, out_master = resolve_conflicts_interactively(df_inv, master, review_rows)
+
+    assert out_inv.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم"
+    assert out_master.iloc[0]["اسم الصنف"] == "سكر التميز 1 كغ"  # master لم يتغيّر
+    assert review_rows[0]["القرار"] == "إكمال بالاسم الأصلي بالفاتورة"
+
+
+def test_resolve_conflicts_manual_naming_updates_invoice_and_master(monkeypatch):
+    df_inv = _inv([{"item_id": 1, "اسم الصنف": "سكر ناعم 10 كجم"}])
+    master = _master([{"الباركود": "123", "اسم الصنف": "سكر التميز 1 كغ"}])
+    review_rows = [{
+        "item_id": 1, "الباركود": "123", "الاسم بالفاتورة": "سكر ناعم 10 كجم",
+        "الاسم المعتمد بقاعدة الأصناف": "سكر التميز 1 كغ", "نسبة التشابه": 67,
+        "السبب": "اختلاف حجم",
+    }]
+
+    responses = iter(["2", "سكر ناعم 10 كجم (تأكيد يدوي)"])
+    monkeypatch.setattr("builtins.input", lambda *_: next(responses))
+    out_inv, out_master = resolve_conflicts_interactively(df_inv, master, review_rows)
+
+    assert out_inv.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم (تأكيد يدوي)"
+    assert out_master.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم (تأكيد يدوي)"
+    assert review_rows[0]["القرار"] == "تسمية يدوية: سكر ناعم 10 كجم (تأكيد يدوي)"
+
+
+def test_resolve_conflicts_non_interactive_run_defaults_gracefully(monkeypatch):
+    df_inv = _inv([{"item_id": 1, "اسم الصنف": "سكر ناعم 10 كجم"}])
+    master = _master([{"الباركود": "123", "اسم الصنف": "سكر التميز 1 كغ"}])
+    review_rows = [{
+        "item_id": 1, "الباركود": "123", "الاسم بالفاتورة": "سكر ناعم 10 كجم",
+        "الاسم المعتمد بقاعدة الأصناف": "سكر التميز 1 كغ", "نسبة التشابه": 67,
+        "السبب": "اختلاف حجم",
+    }]
+
+    def _raise_eof(*_):
+        raise EOFError
+    monkeypatch.setattr("builtins.input", _raise_eof)
+
+    out_inv, out_master = resolve_conflicts_interactively(df_inv, master, review_rows)
+
+    assert out_inv.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم"
+    assert review_rows[0]["القرار"] == "إكمال بالاسم الأصلي بالفاتورة"
 
 
 def test_load_master_detects_alsahl_style_headers(tmp_path):
