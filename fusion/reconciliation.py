@@ -3,6 +3,7 @@
 # تقارن اسم الصنف بـ invoice_data.xlsx مقابل قاعدة master_items.xlsx (عبر الباركود من
 # session_output.xlsx)، فتوحّد نفس الصنف اللي كل مورد يكتبه بصيغة مختلفة.
 import os
+import re
 import pandas as pd
 from rapidfuzz import fuzz, process
 from utils.logger import get_logger
@@ -59,6 +60,48 @@ CONFLICT_THRESHOLD = 45
 # لا يوجد باركود بالفاتورة → القبول بمطابقة الاسم التقريبية مقابل master فقط لو التشابه ≥ كذا.
 # الحد أعلى من CONFLICT_THRESHOLD لأنه بدون باركود لا يوجد مرساة هوية، فنطلب ثقة أعلى.
 FUZZY_MATCH_THRESHOLD = 60
+
+# WRatio يقيس تشابه النص الكلي بس — "سكر ناعم 10 كجم" و"سكر التميز 1 كغ" يطلعوا متشابهين
+# نصيًا (كلمة "سكر" و"كجم"/"كغ" مشتركة) رغم إن الحجم مختلف كليًا (10 أضعاف). هذا فرق حجم
+# حقيقي غالبًا يدل على باركود مُدخل غلط لعبوة مختلفة، مو مجرد صياغة مختلفة لنفس الصنف —
+# فنقارن الوزن/الحجم المستخرج من الاسمين كفحص إضافي مستقل عن WRatio.
+_WEIGHT_UNITS = {"كجم": 1000, "كغ": 1000, "كيلوجرام": 1000, "كيلو": 1000,
+                 "جرام": 1, "غرام": 1, "جم": 1, "غ": 1}
+_VOLUME_UNITS = {"لتر": 1000, "لترات": 1000, "مل": 1, "مليلتر": 1}
+_SIZE_PATTERN = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(" +
+    "|".join(sorted({**_WEIGHT_UNITS, **_VOLUME_UNITS}, key=len, reverse=True)) +
+    r")\b"
+)
+# فرق الحجم المسموح بيه قبل ما يُعتبر تعارض — يتحمّل فروقات تعبئة بسيطة (900غ مقابل 1كجم)
+# لكن يلتقط فرق حجم حقيقي (10كجم مقابل 1كجم).
+SIZE_MISMATCH_RATIO = 1.3
+
+
+def _extract_size(name: str):
+    """يستخرج (القيمة بوحدة أساسية، الفئة) من اسم الصنف — وزن بالغرام أو حجم بالمليلتر.
+    يرجع None لو ما لقى وحدة وزن/حجم معروفة (يشمل اختصارات غامضة زي '5ك')."""
+    match = _SIZE_PATTERN.search(name)
+    if not match:
+        return None
+    value, unit = float(match.group(1)), match.group(2)
+    if unit in _WEIGHT_UNITS:
+        return value * _WEIGHT_UNITS[unit], "weight"
+    return value * _VOLUME_UNITS[unit], "volume"
+
+
+def _sizes_conflict(name_a: str, name_b: str) -> bool:
+    """True فقط لو استخرجنا حجمًا من الاسمين، بنفس الفئة (وزن مع وزن، حجم مع حجم)،
+    والفرق بينهم يتعدى SIZE_MISMATCH_RATIO. غموض أو تعذّر الاستخراج = لا تعارض (نعتمد
+    عندها على WRatio وحده، تفاديًا لإنذارات كاذبة من حالات ما نقدر نجزم فيها)."""
+    size_a, size_b = _extract_size(name_a), _extract_size(name_b)
+    if not size_a or not size_b:
+        return False
+    val_a, cat_a = size_a
+    val_b, cat_b = size_b
+    if cat_a != cat_b or val_a == 0 or val_b == 0:
+        return False
+    return max(val_a, val_b) / min(val_a, val_b) >= SIZE_MISMATCH_RATIO
 
 
 def _clean_str(val) -> str:
@@ -158,11 +201,12 @@ def reconcile_dataframes(
     الباركود المُدخل بـ df_ses. يرجع (invoice محدّث، session محدّث، master محدّث، تحذيرات).
 
     قواعد المطابقة:
-    - باركود موجود بـ master وتشابه الاسم مقبول  → استبدال بالاسم/التصنيف المعتمد.
-    - باركود موجود بـ master لكن الاسم مختلف كثيرًا → لا استبدال تلقائي، تحذير للمراجعة.
+    - باركود موجود بـ master، تشابه الاسم مقبول، ونفس الحجم/الوزن تقريبًا → استبدال بالاسم/التصنيف المعتمد.
+    - باركود موجود بـ master لكن الاسم مختلف كثيرًا أو الحجم/الوزن مختلف كليًا → لا استبدال تلقائي، تحذير للمراجعة.
     - باركود غير موجود بـ master                  → صنف جديد، يُضاف لأول مرة بنفس الاسم الحالي
                                                        (بدون تحذير — هذا وضع طبيعي).
-    - بدون باركود إطلاقًا                          → fuzzy matching على الاسم كخط دفاع احتياطي فقط.
+    - بدون باركود إطلاقًا                          → fuzzy matching على الاسم كخط دفاع احتياطي فقط،
+                                                       ويُتجاهل لو الحجم/الوزن مختلف كليًا رغم تشابه الاسم.
     """
     df_inv = df_inv.copy()
     df_ses = df_ses.copy()
@@ -192,8 +236,9 @@ def reconcile_dataframes(
             approved = master_by_barcode[barcode]
             approved_name = approved["اسم الصنف"]
             similarity = fuzz.WRatio(current_name, approved_name)
+            size_mismatch = _sizes_conflict(current_name, approved_name)
 
-            if similarity >= conflict_threshold:
+            if similarity >= conflict_threshold and not size_mismatch:
                 df_inv.at[idx, "اسم الصنف"] = approved_name
                 for cat_col in CATEGORY_COLUMNS:
                     approved_cat = approved.get(cat_col, "")
@@ -201,18 +246,25 @@ def reconcile_dataframes(
                         df_inv.at[idx, cat_col] = approved_cat
                 canonical_barcode[item_id] = barcode
             else:
+                reason = (
+                    "الباركود مطابق لصنف معتمد لكن الحجم/الوزن مختلف كليًا "
+                    "(مو مجرد صياغة مختلفة) — تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد"
+                    if size_mismatch else
+                    "الباركود مطابق لصنف معتمد لكن الاسم مختلف كثيرًا — "
+                    "تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد"
+                )
                 review_rows.append({
                     "item_id": item_id,
                     "الباركود": barcode,
                     "الاسم بالفاتورة": current_name,
                     "الاسم المعتمد بقاعدة الأصناف": approved_name,
                     "نسبة التشابه": similarity,
-                    "السبب": "الباركود مطابق لصنف معتمد لكن الاسم مختلف كثيرًا — "
-                             "تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد",
+                    "السبب": reason,
                 })
                 log.warning(
                     f"[مطابقة] تعارض عند الباركود {barcode}: "
-                    f"'{current_name}' مقابل المعتمد '{approved_name}' (تشابه {similarity:.0f}%)"
+                    f"'{current_name}' مقابل المعتمد '{approved_name}' "
+                    f"(تشابه {similarity:.0f}%{'، فرق حجم كبير' if size_mismatch else ''})"
                 )
 
         elif barcode:
@@ -228,7 +280,7 @@ def reconcile_dataframes(
         elif known_names:
             # لا باركود بالمرة → fallback: مطابقة تقريبية للاسم فقط، بدون ربط بباركود
             match = process.extractOne(current_name, known_names, scorer=fuzz.WRatio)
-            if match and match[1] >= fuzzy_threshold:
+            if match and match[1] >= fuzzy_threshold and not _sizes_conflict(current_name, match[0]):
                 matched_name = match[0]
                 matched_row = master_df[master_df["اسم الصنف"] == matched_name].iloc[0]
                 df_inv.at[idx, "اسم الصنف"] = matched_name

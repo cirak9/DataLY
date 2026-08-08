@@ -152,6 +152,60 @@ def test_duplicate_items_same_barcode_are_merged_and_totals_summed():
     assert warnings == []
 
 
+def test_barcode_match_with_different_size_is_flagged_not_replaced():
+    # نفس الحالة الحقيقية اللي اكتُشفت: "سكر ناعم 10 كجم" مقابل "سكر التميز 1 كغ" —
+    # تشابه نصي عالي (كلمة "سكر" مشتركة) لكن الحجم مختلف 10 أضعاف فعليًا.
+    df_inv = _inv([{
+        "item_id": 1, "اسم الصنف": "سكر ناعم 10 كجم", "التصنيف الرئيسي": "مواد غذائية",
+        "التصنيف الفرعي": "أخرى", "العدد": 200, "الصندوق": 1, "تكلفة الوحدة": 27.44, "الإجمالي": 5488.0,
+    }])
+    df_ses = _ses([{"item_id": 1, "الباركود": "6289000001660"}])
+    master = _master([{
+        "الباركود": "6289000001660", "اسم الصنف": "سكر التميز 1 كغ",
+        "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "سكر",
+    }])
+
+    out_inv, _, _, warnings = reconcile_dataframes(df_inv, df_ses, master)
+
+    assert out_inv.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم"  # لا استبدال أعمى
+    assert len(warnings) == 1
+    assert "حجم" in warnings[0]["السبب"]
+
+
+def test_barcode_match_with_same_size_different_wording_still_replaces():
+    df_inv = _inv([{
+        "item_id": 1, "اسم الصنف": "معكرونة اسباجيتي 500 غ", "التصنيف الرئيسي": "مواد غذائية",
+        "التصنيف الفرعي": "أخرى", "العدد": 80, "الصندوق": 1, "تكلفة الوحدة": 23.275, "الإجمالي": 1862.0,
+    }])
+    df_ses = _ses([{"item_id": 1, "الباركود": "111222"}])
+    master = _master([{
+        "الباركود": "111222", "اسم الصنف": "معكرونة إسباجيتي 500 جرام",
+        "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "معكرونة ومعجنات",
+    }])
+
+    out_inv, _, _, warnings = reconcile_dataframes(df_inv, df_ses, master)
+
+    assert out_inv.iloc[0]["اسم الصنف"] == "معكرونة إسباجيتي 500 جرام"
+    assert warnings == []
+
+
+def test_missing_barcode_fuzzy_match_skipped_when_size_differs():
+    df_inv = _inv([{
+        "item_id": 1, "اسم الصنف": "سكر ناعم 10 كجم", "التصنيف الرئيسي": "مواد غذائية",
+        "التصنيف الفرعي": "أخرى", "العدد": 200, "الصندوق": 1, "تكلفة الوحدة": 27.44, "الإجمالي": 5488.0,
+    }])
+    df_ses = _ses([{"item_id": 1, "الباركود": ""}])
+    master = _master([{
+        "الباركود": "6289000001660", "اسم الصنف": "سكر التميز 1 كغ",
+        "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "سكر",
+    }])
+
+    out_inv, _, _, warnings = reconcile_dataframes(df_inv, df_ses, master)
+
+    assert out_inv.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم"  # ما تطابق رغم تشابه الاسم
+    assert warnings == []  # فشل fuzzy fallback بدون باركود لا يستحق تحذير (طبيعي)
+
+
 def test_load_master_detects_alsahl_style_headers(tmp_path):
     # نفس تسمية أعمدة منظومة السهل الحقيقية بملف "فاتورة مشتريات": الكود = باركود، الوصف = الاسم
     df = pd.DataFrame({
