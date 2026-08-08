@@ -9,7 +9,7 @@ from extractors.excel_extractor import extract_from_excel
 from transformers.base_cleaner import clean_data
 from session.session_generator import generate_session_files
 from fusion.reconciliation import reconcile, MasterDataError
-from fusion.merge import merge_invoice_and_session, _backup_file
+from fusion.merge import merge_invoice_and_session
 from adapters.alsahl_adapter import export_to_alsahl
 from utils.validators import InvoiceValidationError
 from utils.logger import get_logger
@@ -63,16 +63,10 @@ def process_merge():
     log.info(f"DataLY v{VERSION} — دمج الجلسة وتصدير ملف السهل")
     log.info("=" * 60)
 
-    data_dir = os.path.join(os.path.dirname(__file__), "data")
-    _backup_file(os.path.join(data_dir, "invoice_data.xlsx"))
-    _backup_file(os.path.join(data_dir, "session_output.xlsx"))
-    _backup_file(os.path.join(data_dir, "master_items.xlsx"))
-
     try:
         match_count = reconcile()
         if match_count:
-            log.info(f"ℹ️ {match_count} تطابق عُرض للموافقة أثناء التشغيل — "
-                      f"راجع سجل القرارات بـ data/reconciliation_review.xlsx")
+            log.info(f"ℹ️ {match_count} تطابق عُرض للموافقة أثناء التشغيل")
         df_merged = merge_invoice_and_session()
     except (FileNotFoundError, MasterDataError) as e:
         log.error(str(e))

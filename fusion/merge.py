@@ -1,15 +1,12 @@
 # fusion/merge.py — v6
 import os
 import re
-import shutil
-import datetime
 import pandas as pd
 from utils.logger import get_logger
 
 log = get_logger()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 
 
 def _extract_per_box_from_unit(unit: str) -> int:
@@ -17,17 +14,6 @@ def _extract_per_box_from_unit(unit: str) -> int:
     if match:
         return int(match.group(1))
     return 1
-
-
-def _backup_file(path: str) -> None:
-    """🆕 نسخة احتياطية قبل أي كتابة فوق ملف بيانات مهم — يحل تحدي غياب النسخ الاحتياطي."""
-    if not os.path.exists(path):
-        return
-    os.makedirs(BACKUP_DIR, exist_ok=True)
-    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    name = os.path.basename(path)
-    backup_path = os.path.join(BACKUP_DIR, f"{name}.{stamp}.bak")
-    shutil.copy(path, backup_path)
 
 
 def merge_invoice_and_session() -> pd.DataFrame:

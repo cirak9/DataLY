@@ -12,7 +12,6 @@ log = get_logger()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 MASTER_ITEMS_PATH = os.path.join(DATA_DIR, "master_items.xlsx")
-REVIEW_PATH = os.path.join(DATA_DIR, "reconciliation_review.xlsx")
 
 MASTER_COLUMNS = ["الباركود", "اسم الصنف", "التصنيف الرئيسي", "التصنيف الفرعي"]
 CATEGORY_COLUMNS = ("التصنيف الرئيسي", "التصنيف الفرعي")
@@ -185,14 +184,6 @@ def save_master(df: pd.DataFrame, path: str = MASTER_ITEMS_PATH) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     df = df.drop_duplicates(subset=["الباركود"], keep="last").reset_index(drop=True)
     df.to_excel(path, index=False)
-
-
-def save_review(rows: list, path: str = REVIEW_PATH) -> None:
-    if not rows:
-        return
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    pd.DataFrame(rows).to_excel(path, index=False)
-    log.info(f"[مطابقة] سجل قرارات التطابق ({len(rows)} حالة) → {path}")
 
 
 def reconcile_dataframes(
@@ -423,7 +414,8 @@ def resolve_matches_interactively(
 def reconcile() -> int:
     """غلاف الملفات: يقرأ invoice_data/session_output/master_items من data/، يوحّد الأصناف،
     يعرض أي تطابق مُقترَح بالطرفية لموافقة فورية (كل تطابق، مو بس المتعارض)، يكتب الملفات
-    المحدّثة، ويرجّع عدد التطابقات اللي عُرضت للموافقة."""
+    المحدّثة (invoice_data/session_output/master_items بس — بدون أي ملف سجل إضافي)،
+    ويرجّع عدد التطابقات اللي عُرضت للموافقة."""
     invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
     session_path = os.path.join(DATA_DIR, "session_output.xlsx")
 
@@ -444,7 +436,6 @@ def reconcile() -> int:
     df_inv.to_excel(invoice_path, index=False)
     df_ses.to_excel(session_path, index=False)
     save_master(master_df)
-    save_review(decisions)
 
     approved = sum(1 for d in decisions if d["القرار"].startswith(("موافقة", "تسمية")))
     log.info(f"[مطابقة] اكتمل توحيد الأصناف — {len(decisions)} تطابق عُرض، {approved} اعتُمد")
