@@ -69,10 +69,10 @@ def process_merge():
     _backup_file(os.path.join(data_dir, "master_items.xlsx"))
 
     try:
-        review_count = reconcile()
-        if review_count:
-            log.warning(f"⚠️ {review_count} حالة باركود متعارضة تحتاج مراجعتك — "
-                        f"راجع data/reconciliation_review.xlsx قبل رفع ملف السهل")
+        match_count = reconcile()
+        if match_count:
+            log.info(f"ℹ️ {match_count} تطابق عُرض للموافقة أثناء التشغيل — "
+                      f"راجع سجل القرارات بـ data/reconciliation_review.xlsx")
         df_merged = merge_invoice_and_session()
     except (FileNotFoundError, MasterDataError) as e:
         log.error(str(e))

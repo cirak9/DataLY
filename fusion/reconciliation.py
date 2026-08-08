@@ -52,13 +52,15 @@ class MasterDataError(Exception):
     """يُرفع لو ملف master_items.xlsx ما فيه عمود يمكن التعرّف عليه كباركود أو كاسم للصنف."""
     pass
 
-# باركود مطابق لكن الاسم مختلف عن كذا → تحذير بدل استبدال أعمى (احتمال باركود مُدخل غلط).
-# الحد منخفض عمدًا: الباركود نفسه دليل هوية قوي، فنفس الصنف قد يُكتب بصيغ عربية مختلفة
-# كثيرًا (مثال: "أرز أبيض ممتاز 5 كجم" مقابل "رز ابيض فاخر 5ك" ≈ 63 بمقياس WRatio) —
-# الفحص هنا يلتقط فقط التعارض الحقيقي (صنف مختلف تمامًا وصل لنفس الباركود بالخطأ).
+# باركود مطابق لكن الاسم مختلف عن كذا → "تنبيه" يُعرض مع التطابق المُقترَح وقت طلب الموافقة
+# (مو رفض تلقائي — كل تطابق بالباركود يُعرض للموافقة بغض النظر عن هذا الحد). الحد منخفض
+# عمدًا: الباركود نفسه دليل هوية قوي، فنفس الصنف قد يُكتب بصيغ عربية مختلفة كثيرًا (مثال:
+# "أرز أبيض ممتاز 5 كجم" مقابل "رز ابيض فاخر 5ك" ≈ 63 بمقياس WRatio) — التنبيه يظهر فقط
+# للتعارض الحقيقي المحتمل (صنف مختلف تمامًا وصل لنفس الباركود بالخطأ).
 CONFLICT_THRESHOLD = 45
-# لا يوجد باركود بالفاتورة → القبول بمطابقة الاسم التقريبية مقابل master فقط لو التشابه ≥ كذا.
-# الحد أعلى من CONFLICT_THRESHOLD لأنه بدون باركود لا يوجد مرساة هوية، فنطلب ثقة أعلى.
+# لا يوجد باركود بالفاتورة → يُقترَح تطابق بالاسم التقريبي (وينتظر موافقتك بردو) فقط لو
+# التشابه ≥ كذا؛ أقل من كذا يُعتبر "بلا مطابقة معروفة" ولا يُقترَح إطلاقًا. الحد أعلى من
+# CONFLICT_THRESHOLD لأنه بدون باركود لا يوجد مرساة هوية، فنطلب ثقة أعلى قبل حتى الاقتراح.
 FUZZY_MATCH_THRESHOLD = 60
 
 # WRatio يقيس تشابه النص الكلي بس — "سكر ناعم 10 كجم" و"سكر التميز 1 كغ" يطلعوا متشابهين
@@ -190,7 +192,7 @@ def save_review(rows: list, path: str = REVIEW_PATH) -> None:
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
     pd.DataFrame(rows).to_excel(path, index=False)
-    log.warning(f"[مطابقة] {len(rows)} حالة تحتاج مراجعة بشرية → {path}")
+    log.info(f"[مطابقة] سجل قرارات التطابق ({len(rows)} حالة) → {path}")
 
 
 def reconcile_dataframes(
@@ -201,16 +203,22 @@ def reconcile_dataframes(
     fuzzy_threshold: int = FUZZY_MATCH_THRESHOLD,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
     """
-    يوحّد "اسم الصنف" (والتصنيف إن توفر) بـ df_inv مقابل master_df، بالاعتماد على
-    الباركود المُدخل بـ df_ses. يرجع (invoice محدّث، session محدّث، master محدّث، تحذيرات).
+    تحضّر التغييرات المقترحة على "اسم الصنف" (والتصنيف إن توفر) بـ df_inv مقابل
+    master_df، بالاعتماد على الباركود المُدخل بـ df_ses. **لا تستبدل أي اسم تلقائيًا** —
+    كل تطابق يرجع كـ"تطابق مُقترَح" ضمن pending_matches بانتظار موافقة بشرية عبر
+    resolve_matches_interactively()، عدا تسجيل صنف جديد كليًا فهذا فقط تلقائي فورًا
+    (إضافة جديدة، مو تعديل على شي معتمد من قبل).
 
     قواعد المطابقة:
-    - باركود موجود بـ master، تشابه الاسم مقبول، ونفس الحجم/الوزن تقريبًا → استبدال بالاسم/التصنيف المعتمد.
-    - باركود موجود بـ master لكن الاسم مختلف كثيرًا أو الحجم/الوزن مختلف كليًا → لا استبدال تلقائي، تحذير للمراجعة.
-    - باركود غير موجود بـ master                  → صنف جديد، يُضاف لأول مرة بنفس الاسم الحالي
-                                                       (بدون تحذير — هذا وضع طبيعي).
-    - بدون باركود إطلاقًا                          → fuzzy matching على الاسم كخط دفاع احتياطي فقط،
-                                                       ويُتجاهل لو الحجم/الوزن مختلف كليًا رغم تشابه الاسم.
+    - باركود موجود بـ master  → تطابق مُقترَح (بالاسم/التصنيف المعتمد)، ينتظر موافقتك
+      دائمًا مهما كانت نسبة التشابه — مع "تنبيه" لو الاسم مختلف كثيرًا أو الحجم/الوزن متعارض.
+    - باركود غير موجود بـ master → صنف جديد، يُسجَّل تلقائيًا فورًا بنفس الاسم الحالي
+      (بدون انتظار موافقة — هذا وضع طبيعي، لا شي معتمد سابقًا يتغيّر).
+    - بدون باركود إطلاقًا      → لو فيه تشابه اسم كافٍ (fuzzy) مع صنف بـmaster وبدون تعارض
+      حجم/وزن، يرجع كتطابق مُقترَح بردو ينتظر موافقتك. أقل من كذا = صنف بلا مطابقة معروفة
+      (طبيعي، بدون اقتراح).
+
+    يرجع (invoice، session، master محدّث بالأصناف الجديدة، قائمة pending_matches).
     """
     df_inv = df_inv.copy()
     df_ses = df_ses.copy()
@@ -227,11 +235,10 @@ def reconcile_dataframes(
     }
     known_names = master_df["اسم الصنف"].tolist()
 
-    review_rows: list = []
+    pending_matches: list = []
     new_master_rows: list = []
-    canonical_barcode: dict = {}
 
-    for idx, inv_row in df_inv.iterrows():
+    for _, inv_row in df_inv.iterrows():
         item_id = inv_row["item_id"]
         current_name = _clean_str(inv_row.get("اسم الصنف", ""))
         barcode = barcode_by_item.get(item_id, "")
@@ -241,65 +248,56 @@ def reconcile_dataframes(
             approved_name = approved["اسم الصنف"]
             similarity = fuzz.WRatio(current_name, approved_name)
             size_reason = _size_conflict_reason(current_name, approved_name)
-
-            if similarity >= conflict_threshold and not size_reason:
-                df_inv.at[idx, "اسم الصنف"] = approved_name
-                for cat_col in CATEGORY_COLUMNS:
-                    approved_cat = approved.get(cat_col, "")
-                    if approved_cat:  # مرن: لو master ما فيه تصنيف معتمد، نبقي تصنيف categorizer.py
-                        df_inv.at[idx, cat_col] = approved_cat
-                canonical_barcode[item_id] = barcode
-            else:
-                reason = (
-                    f"الباركود مطابق لصنف معتمد لكن {size_reason} — "
-                    "تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد"
-                    if size_reason else
-                    "الباركود مطابق لصنف معتمد لكن الاسم مختلف كثيرًا — "
-                    "تأكد إن الباركود لم يُدخل غلطًا قبل الاعتماد"
-                )
-                review_rows.append({
-                    "item_id": item_id,
-                    "الباركود": barcode,
-                    "الاسم بالفاتورة": current_name,
-                    "الاسم المعتمد بقاعدة الأصناف": approved_name,
-                    "نسبة التشابه": similarity,
-                    "السبب": reason,
-                })
-                log.warning(
-                    f"[مطابقة] تعارض عند الباركود {barcode}: "
-                    f"'{current_name}' مقابل المعتمد '{approved_name}' "
-                    f"(تشابه {similarity:.0f}%{f'، {size_reason}' if size_reason else ''})"
-                )
+            flag = size_reason or (
+                "" if similarity >= conflict_threshold else "الاسم مختلف كثيرًا نصيًا عن الاسم المعتمد"
+            )
+            pending_matches.append({
+                "item_id": item_id,
+                "الباركود": barcode,
+                "طريقة المطابقة": "باركود",
+                "الاسم بالفاتورة": current_name,
+                "الاسم المقترح": approved_name,
+                "التصنيف الرئيسي المقترح": approved.get("التصنيف الرئيسي", ""),
+                "التصنيف الفرعي المقترح": approved.get("التصنيف الفرعي", ""),
+                "نسبة التشابه": round(similarity, 1),
+                "تنبيه": flag,
+            })
 
         elif barcode:
-            # باركود جديد تمامًا على master → يدخل لأول مرة بنفس الاسم المكتوب بالفاتورة (طبيعي، بدون تحذير)
+            # باركود جديد تمامًا على master → يدخل لأول مرة بنفس الاسم المكتوب بالفاتورة
+            # تلقائيًا، بدون انتظار موافقة (إضافة جديدة، مو تعديل على شي معتمد سابقًا)
             new_master_rows.append({
                 "الباركود": barcode,
                 "اسم الصنف": current_name,
                 "التصنيف الرئيسي": _clean_str(inv_row.get("التصنيف الرئيسي", "")),
                 "التصنيف الفرعي": _clean_str(inv_row.get("التصنيف الفرعي", "")),
             })
-            canonical_barcode[item_id] = barcode
+            log.info(f"[مطابقة] صنف جديد كليًا سُجِّل تلقائيًا بالباركود {barcode}: '{current_name}'")
 
         elif known_names:
             # لا باركود بالمرة → fallback: مطابقة تقريبية للاسم فقط، بدون ربط بباركود
             match = process.extractOne(current_name, known_names, scorer=fuzz.WRatio)
-            if match and match[1] >= fuzzy_threshold and not _size_conflict_reason(current_name, match[0]):
+            if match and match[1] >= fuzzy_threshold:
                 matched_name = match[0]
                 matched_row = master_df[master_df["اسم الصنف"] == matched_name].iloc[0]
-                df_inv.at[idx, "اسم الصنف"] = matched_name
-                for cat_col in CATEGORY_COLUMNS:
-                    approved_cat = matched_row.get(cat_col, "")
-                    if approved_cat:
-                        df_inv.at[idx, cat_col] = approved_cat
-            # أقل من الحد → يُترك كما هو، صنف بلا مطابقة معروفة (طبيعي، بدون تحذير)
+                size_reason = _size_conflict_reason(current_name, matched_name)
+                pending_matches.append({
+                    "item_id": item_id,
+                    "الباركود": "",
+                    "طريقة المطابقة": "اسم تقريبي (بدون باركود)",
+                    "الاسم بالفاتورة": current_name,
+                    "الاسم المقترح": matched_name,
+                    "التصنيف الرئيسي المقترح": matched_row.get("التصنيف الرئيسي", ""),
+                    "التصنيف الفرعي المقترح": matched_row.get("التصنيف الفرعي", ""),
+                    "نسبة التشابه": round(match[1], 1),
+                    "تنبيه": size_reason,
+                })
+            # أقل من الحد → يُترك كما هو، صنف بلا مطابقة معروفة (طبيعي، بدون اقتراح)
 
     master_df = pd.concat([master_df, pd.DataFrame(new_master_rows, columns=MASTER_COLUMNS)],
                            ignore_index=True) if new_master_rows else master_df
 
-    df_inv, df_ses = _merge_duplicate_barcodes(df_inv, df_ses, canonical_barcode)
-
-    return df_inv, df_ses, master_df, review_rows
+    return df_inv, df_ses, master_df, pending_matches
 
 
 def _merge_duplicate_barcodes(df_inv: pd.DataFrame, df_ses: pd.DataFrame, canonical_barcode: dict):
@@ -337,66 +335,95 @@ def _merge_duplicate_barcodes(df_inv: pd.DataFrame, df_ses: pd.DataFrame, canoni
     return df_inv, df_ses
 
 
-def resolve_conflicts_interactively(
-    df_inv: pd.DataFrame, master_df: pd.DataFrame, review_rows: list
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+def resolve_matches_interactively(
+    df_inv: pd.DataFrame, df_ses: pd.DataFrame, master_df: pd.DataFrame, pending_matches: list,
+    choices=None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
     """
-    تعرض كل حالة تعارض بالطرفية وتطلب قرار فوري: إكمال بالاسم الحالي بالفاتورة، أو
-    كتابة الاسم الصحيح يدويًا الآن. التسمية اليدوية تُحدَّث بكل من الفاتورة الحالية
-    و master_items.xlsx (نفس فلسفة "يُصنَّف مرة وحدة ويُحفظ للأبد" — لو صححته الآن،
-    ما يرجع يسألك عنه بالفاتورة الجاية بنفس الباركود).
+    تعرض كل تطابق مُقترَح بالطرفية وتطلب قرارًا فوريًا — **كل تطابق، مهما كانت نسبة
+    التشابه**، مو بس الحالات المتعارضة:
+      [1] موافقة  — استخدم الاسم/التصنيف المقترح من master
+      [2] رفض     — إبقاء الاسم الأصلي بالفاتورة كما هو (الافتراضي)
+      [3] تسمية يدوية — اكتب الاسم الصحيح بنفسك الآن
+
+    التسمية اليدوية تُحدَّث بالفاتورة و master_items.xlsx معًا (نفس فلسفة "يُصنَّف مرة
+    وحدة ويُحفظ للأبد" — لو صححته الآن، ما يرجع يسألك عنه بنفس الباركود مرة ثانية).
+    بعد كل القرارات، تُدمج تلقائيًا أي صفّين وصلوا لنفس الباركود المعتمد (بالموافقة أو
+    التسمية اليدوية) بنفس الفاتورة.
 
     دالة منفصلة عمدًا عن reconcile_dataframes() (اللي تبقى pure/قابلة للاختبار بدون
-    تدخل بشري) — تُستدعى فقط من reconcile() بالتشغيل الحقيقي.
+    تدخل بشري) — تُستدعى فقط من reconcile() بالتشغيل الحقيقي. آمنة عند تشغيل غير
+    تفاعلي (EOFError) — تفترض "رفض" (الاسم الأصلي) بدل ما تعلّق بانتظار إدخال ما راح يجي.
 
-    لو ما فيه طرفية تفاعلية (تشغيل آلي/غير تفاعلي)، تُكمل تلقائيًا بالاسم الأصلي بدل
-    ما تعلّق بانتظار إدخال ما راح يجي.
+    `choices`: iterator اختياري يزوّد الردود بدل input() الحقيقي — للاختبارات فقط.
     """
-    if not review_rows:
-        return df_inv, master_df
+    if not pending_matches:
+        return df_inv, df_ses, master_df, []
+
+    def _prompt(text: str) -> str:
+        if choices is not None:
+            return next(choices, "")
+        try:
+            return input(text).strip()
+        except EOFError:
+            return ""  # تشغيل غير تفاعلي — رفض افتراضي بدل ما تعلّق
 
     df_inv = df_inv.copy()
     master_df = master_df.copy()
+    canonical_barcode: dict = {}
 
-    for row in review_rows:
-        item_id, barcode = row["item_id"], row["الباركود"]
-        print(f"\n⚠️  تعارض بالباركود {barcode}:")
-        print(f"   بالفاتورة: {row['الاسم بالفاتورة']}")
-        print(f"   المعتمد بقاعدة الأصناف: {row['الاسم المعتمد بقاعدة الأصناف']}")
-        print(f"   السبب: {row['السبب']}")
+    for m in pending_matches:
+        item_id, barcode = m["item_id"], m["الباركود"]
+        print(f"\n🔎 تطابق مُقترَح ({m['طريقة المطابقة']}):")
+        print(f"   بالفاتورة: {m['الاسم بالفاتورة']}")
+        print(f"   المقترح:   {m['الاسم المقترح']}  (تشابه {m['نسبة التشابه']:.0f}%)")
+        if m["تنبيه"]:
+            print(f"   ⚠️ تنبيه: {m['تنبيه']}")
 
-        try:
-            choice = input(
-                "   [1] إكمال بالاسم الحالي بالفاتورة   [2] كتابة الاسم الصحيح يدويًا الآن\n"
-                "   اختر (1/2) [افتراضي 1]: "
-            ).strip()
-        except EOFError:
-            choice = ""  # تشغيل غير تفاعلي — أكمل بالاسم الأصلي بدل ما تعلّق
+        choice = _prompt(
+            "   [1] موافقة — استخدم الاسم المقترح   [2] رفض — إبقاء الاسم الأصلي   "
+            "[3] تسمية يدوية\n   اختر (1/2/3) [افتراضي 2]: "
+        )
 
-        if choice == "2":
-            try:
-                manual_name = input("   اكتب الاسم الصحيح المعتمد: ").strip()
-            except EOFError:
-                manual_name = ""
+        inv_idx = df_inv.index[df_inv["item_id"] == item_id][0]
+
+        if choice == "1":
+            df_inv.at[inv_idx, "اسم الصنف"] = m["الاسم المقترح"]
+            for cat_key, cat_col in (("التصنيف الرئيسي المقترح", "التصنيف الرئيسي"),
+                                      ("التصنيف الفرعي المقترح", "التصنيف الفرعي")):
+                if m.get(cat_key):
+                    df_inv.at[inv_idx, cat_col] = m[cat_key]
+            if barcode:
+                canonical_barcode[item_id] = barcode
+            m["القرار"] = "موافقة — اعتُمد الاسم المقترح"
+            log.info(f"[مطابقة] موافقة على '{m['الاسم المقترح']}' لـitem_id={item_id}")
+
+        elif choice == "3":
+            manual_name = _prompt("   اكتب الاسم الصحيح المعتمد: ")
             if manual_name:
-                inv_idx = df_inv.index[df_inv["item_id"] == item_id][0]
                 df_inv.at[inv_idx, "اسم الصنف"] = manual_name
-                master_idx = master_df.index[master_df["الباركود"] == barcode]
-                if len(master_idx):
-                    master_df.at[master_idx[0], "اسم الصنف"] = manual_name
-                row["القرار"] = f"تسمية يدوية: {manual_name}"
+                if barcode:
+                    master_idx = master_df.index[master_df["الباركود"] == barcode]
+                    if len(master_idx):
+                        master_df.at[master_idx[0], "اسم الصنف"] = manual_name
+                    canonical_barcode[item_id] = barcode
+                m["القرار"] = f"تسمية يدوية: {manual_name}"
                 log.info(f"[مطابقة] تسمية يدوية اعتُمدت للباركود {barcode}: '{manual_name}' (وتحدّث master)")
-                continue
+            else:
+                m["القرار"] = "رفض — إبقاء الاسم الأصلي (لم يُكتب اسم يدوي)"
 
-        row["القرار"] = "إكمال بالاسم الأصلي بالفاتورة"
+        else:
+            m["القرار"] = "رفض — إبقاء الاسم الأصلي"
 
-    return df_inv, master_df
+    df_inv, df_ses = _merge_duplicate_barcodes(df_inv, df_ses, canonical_barcode)
+
+    return df_inv, df_ses, master_df, pending_matches
 
 
 def reconcile() -> int:
     """غلاف الملفات: يقرأ invoice_data/session_output/master_items من data/، يوحّد الأصناف،
-    يعرض أي تعارض بالطرفية لقرار فوري (إكمال أو تسمية يدوية)، يكتب الملفات المحدّثة،
-    ويرجّع عدد التعارضات اللي ظهرت (0 يعني لا شي احتاج مراجعة)."""
+    يعرض أي تطابق مُقترَح بالطرفية لموافقة فورية (كل تطابق، مو بس المتعارض)، يكتب الملفات
+    المحدّثة، ويرجّع عدد التطابقات اللي عُرضت للموافقة."""
     invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
     session_path = os.path.join(DATA_DIR, "session_output.xlsx")
 
@@ -411,13 +438,14 @@ def reconcile() -> int:
     df_ses["item_id"] = pd.to_numeric(df_ses["item_id"], errors="coerce").fillna(0).astype(int)
 
     master_df = load_master()
-    df_inv, df_ses, master_df, review_rows = reconcile_dataframes(df_inv, df_ses, master_df)
-    df_inv, master_df = resolve_conflicts_interactively(df_inv, master_df, review_rows)
+    df_inv, df_ses, master_df, pending_matches = reconcile_dataframes(df_inv, df_ses, master_df)
+    df_inv, df_ses, master_df, decisions = resolve_matches_interactively(df_inv, df_ses, master_df, pending_matches)
 
     df_inv.to_excel(invoice_path, index=False)
     df_ses.to_excel(session_path, index=False)
     save_master(master_df)
-    save_review(review_rows)
+    save_review(decisions)
 
-    log.info(f"[مطابقة] اكتمل توحيد الأصناف — {len(review_rows)} حالة تحتاج مراجعة")
-    return len(review_rows)
+    approved = sum(1 for d in decisions if d["القرار"].startswith(("موافقة", "تسمية")))
+    log.info(f"[مطابقة] اكتمل توحيد الأصناف — {len(decisions)} تطابق عُرض، {approved} اعتُمد")
+    return len(decisions)
