@@ -25,8 +25,9 @@ def _master(rows):
 
 
 # ── reconcile_dataframes(): تحضير التطابقات المُقترَحة (بدون تطبيق أي استبدال) ──────
+# master_items.xlsx للقراءة/المقارنة فقط — لا يُعدَّل ولا يُسجَّل فيه أي شيء أبدًا.
 
-def test_new_barcode_registers_automatically_without_pending_match():
+def test_new_barcode_not_in_master_stays_unchanged_without_pending_match():
     df_inv = _inv([{
         "item_id": 1, "اسم الصنف": "صنف جديد كليًا", "التصنيف الرئيسي": "مواد غذائية",
         "التصنيف الفرعي": "أخرى", "العدد": 5, "الصندوق": 1, "تكلفة الوحدة": 2.0, "الإجمالي": 10.0,
@@ -34,12 +35,10 @@ def test_new_barcode_registers_automatically_without_pending_match():
     df_ses = _ses([{"item_id": 1, "الباركود": "999000"}])
     master = _master([])
 
-    out_inv, out_ses, out_master, pending = reconcile_dataframes(df_inv, df_ses, master)
+    out_inv, out_ses, pending = reconcile_dataframes(df_inv, df_ses, master)
 
-    assert pending == []  # صنف جديد لا يحتاج موافقة
-    assert out_inv.iloc[0]["اسم الصنف"] == "صنف جديد كليًا"
-    assert "999000" in out_master["الباركود"].tolist()
-    assert out_master[out_master["الباركود"] == "999000"].iloc[0]["اسم الصنف"] == "صنف جديد كليًا"
+    assert pending == []  # بلا مطابقة، بلا اقتراح
+    assert out_inv.iloc[0]["اسم الصنف"] == "صنف جديد كليًا"  # يبقى كما هو، بدون أي تسجيل
 
 
 def test_known_barcode_creates_pending_match_without_auto_replace():
@@ -53,7 +52,7 @@ def test_known_barcode_creates_pending_match_without_auto_replace():
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "أرز وحبوب",
     }])
 
-    out_inv, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    out_inv, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
     # ما فيه استبدال تلقائي — الاسم بالفاتورة يبقى كما هو لحد الموافقة
     assert out_inv.iloc[0]["اسم الصنف"] == "رز ابيض فاخر 5ك"
@@ -74,7 +73,7 @@ def test_pending_match_flags_low_name_similarity():
         "التصنيف الرئيسي": "عناية شخصية", "التصنيف الفرعي": "أخرى",
     }])
 
-    _, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
     assert len(pending) == 1
     assert pending[0]["تنبيه"] != ""
@@ -91,7 +90,7 @@ def test_pending_match_flags_size_mismatch_same_unit_category():
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "سكر",
     }])
 
-    _, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
     assert len(pending) == 1
     assert "حجم" in pending[0]["تنبيه"]
@@ -108,7 +107,7 @@ def test_pending_match_flags_different_unit_category():
         "التصنيف الرئيسي": "منظفات", "التصنيف الفرعي": "مساحيق غسيل",
     }])
 
-    _, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
     assert len(pending) == 1
     assert "قياس" in pending[0]["تنبيه"]
@@ -125,7 +124,7 @@ def test_missing_barcode_creates_pending_fuzzy_match_above_threshold():
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "أرز وحبوب",
     }])
 
-    out_inv, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    out_inv, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
     assert out_inv.iloc[0]["اسم الصنف"] == "رز ابيض فاخر 5ك"  # بدون استبدال تلقائي
     assert len(pending) == 1
@@ -144,7 +143,7 @@ def test_missing_barcode_no_match_below_threshold_creates_no_pending_match():
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "أرز وحبوب",
     }])
 
-    out_inv, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    out_inv, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
     assert out_inv.iloc[0]["اسم الصنف"] == "صنف غريب تمامًا XYZ"
     assert pending == []
@@ -163,10 +162,10 @@ def test_approving_match_applies_name_and_category_and_marks_canonical():
         "الباركود": "123456", "اسم الصنف": "أرز أبيض ممتاز 5 كجم",
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "أرز وحبوب",
     }])
-    _, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
-    out_inv, out_ses, out_master, decisions = resolve_matches_interactively(
-        df_inv, df_ses, master, pending, choices=iter(["1"])
+    out_inv, out_ses, decisions = resolve_matches_interactively(
+        df_inv, df_ses, pending, choices=iter(["1"])
     )
 
     assert out_inv.iloc[0]["اسم الصنف"] == "أرز أبيض ممتاز 5 كجم"
@@ -185,18 +184,17 @@ def test_rejecting_match_keeps_original_name():
         "الباركود": "123456", "اسم الصنف": "أرز أبيض ممتاز 5 كجم",
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "أرز وحبوب",
     }])
-    _, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
-    out_inv, _, out_master, decisions = resolve_matches_interactively(
-        df_inv, df_ses, master, pending, choices=iter(["2"])
+    out_inv, _, decisions = resolve_matches_interactively(
+        df_inv, df_ses, pending, choices=iter(["2"])
     )
 
     assert out_inv.iloc[0]["اسم الصنف"] == "رز ابيض فاخر 5ك"
-    assert out_master.iloc[0]["اسم الصنف"] == "أرز أبيض ممتاز 5 كجم"  # master لم يتغيّر
     assert decisions[0]["القرار"] == "رفض — إبقاء الاسم الأصلي"
 
 
-def test_manual_naming_updates_invoice_and_master():
+def test_manual_naming_updates_invoice_only_not_master():
     df_inv = _inv([{
         "item_id": 1, "اسم الصنف": "سكر ناعم 10 كجم",
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "أخرى",
@@ -207,21 +205,21 @@ def test_manual_naming_updates_invoice_and_master():
         "الباركود": "6289000001660", "اسم الصنف": "سكر التميز 1 كغ",
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "سكر",
     }])
-    _, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
-    out_inv, _, out_master, decisions = resolve_matches_interactively(
-        df_inv, df_ses, master, pending, choices=iter(["3", "سكر ناعم 10 كجم (مؤكَّد)"])
+    out_inv, _, decisions = resolve_matches_interactively(
+        df_inv, df_ses, pending, choices=iter(["3", "سكر ناعم 10 كجم (مؤكَّد)"])
     )
 
     assert out_inv.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم (مؤكَّد)"
-    assert out_master.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم (مؤكَّد)"
     assert decisions[0]["القرار"] == "تسمية يدوية: سكر ناعم 10 كجم (مؤكَّد)"
+    # master نفسه (اللي مرّرناه) ما تغيّر — للقراءة فقط دائمًا
+    assert master.iloc[0]["اسم الصنف"] == "سكر التميز 1 كغ"
 
 
 def test_non_interactive_run_defaults_to_rejection_without_hanging(monkeypatch):
     df_inv = _inv([{"item_id": 1, "اسم الصنف": "سكر ناعم 10 كجم"}])
     df_ses = _ses([{"item_id": 1, "الباركود": "123"}])
-    master = _master([{"الباركود": "123", "اسم الصنف": "سكر التميز 1 كغ"}])
     pending = [{
         "item_id": 1, "الباركود": "123", "طريقة المطابقة": "باركود",
         "الاسم بالفاتورة": "سكر ناعم 10 كجم", "الاسم المقترح": "سكر التميز 1 كغ",
@@ -233,7 +231,7 @@ def test_non_interactive_run_defaults_to_rejection_without_hanging(monkeypatch):
         raise EOFError
     monkeypatch.setattr("builtins.input", _raise_eof)
 
-    out_inv, _, _, decisions = resolve_matches_interactively(df_inv, df_ses, master, pending)
+    out_inv, _, decisions = resolve_matches_interactively(df_inv, df_ses, pending)
 
     assert out_inv.iloc[0]["اسم الصنف"] == "سكر ناعم 10 كجم"
     assert decisions[0]["القرار"] == "رفض — إبقاء الاسم الأصلي"
@@ -254,11 +252,11 @@ def test_two_approved_matches_same_barcode_are_merged():
         "الباركود": "123456", "اسم الصنف": "أرز أبيض ممتاز 5 كجم",
         "التصنيف الرئيسي": "مواد غذائية", "التصنيف الفرعي": "أرز وحبوب",
     }])
-    _, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
     assert len(pending) == 2
 
-    out_inv, out_ses, _, decisions = resolve_matches_interactively(
-        df_inv, df_ses, master, pending, choices=iter(["1", "1"])
+    out_inv, out_ses, decisions = resolve_matches_interactively(
+        df_inv, df_ses, pending, choices=iter(["1", "1"])
     )
 
     assert len(out_inv) == 1
@@ -279,10 +277,10 @@ def test_master_without_category_columns_keeps_existing_category_on_approval():
     df_ses = _ses([{"item_id": 1, "الباركود": "123456"}])
     # master بدون بيانات تصنيف معتمدة (بيانات مستلمة ناقصة التفصيل)
     master = _master([{"الباركود": "123456", "اسم الصنف": "أرز أبيض ممتاز 5 كجم"}])
-    _, _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
+    _, _, pending = reconcile_dataframes(df_inv, df_ses, master)
 
-    out_inv, _, _, _ = resolve_matches_interactively(
-        df_inv, df_ses, master, pending, choices=iter(["1"])
+    out_inv, _, _ = resolve_matches_interactively(
+        df_inv, df_ses, pending, choices=iter(["1"])
     )
 
     assert out_inv.iloc[0]["اسم الصنف"] == "أرز أبيض ممتاز 5 كجم"
