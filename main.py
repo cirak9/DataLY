@@ -17,7 +17,7 @@ from utils.logger import get_logger
 log = get_logger()
 
 SUPPORTED_EXCEL = {".xlsx", ".xls"}
-VERSION = "6.1.0"
+VERSION = "6.1.1"
 
 
 def process_invoice(file_path: str):

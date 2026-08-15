@@ -28,6 +28,28 @@ def test_san_bug_fixed():
         "خلل 'صن' داخل 'صنف' لسه موجود — تأكد whole_word_keywords تحتوي 'صن'"
 
 
+def test_raz_bug_cherry_not_confused_with_rice():
+    # خلل مكتشف بتدقيق مركّز: "رز" (أرز) بدون whole_word كانت تتطابق داخل "كرز" (كرز)
+    result = get_category("مربى كرز 500 جرام")
+    assert result != ("مواد غذائية", "أرز وحبوب"), \
+        "خلل 'رز' داخل 'كرز' — تأكد whole_word_keywords بـ'أرز وحبوب' تحتوي 'رز'"
+
+
+def test_powder_bug_milk_powder_not_confused_with_detergent():
+    # خلل مكتشف بتدقيق مركّز: كلمة "مسحوق" المجرّدة كانت تصنّف أي منتج مسحوق
+    # (حليب أطفال، بروتين، بيكنج باودر) كمسحوق غسيل — أزلناها لصالح "مسحوق غسيل" الأدق
+    result = get_category("مسحوق حليب أطفال 400 جرام")
+    assert result != ("منظفات منزلية", "غسيل ملابس"), \
+        "خلل 'مسحوق' المجرّدة يصنّف مساحيق غذائية كمنظفات — تأكد حذفها من keywords"
+    assert get_category("مسحوق حليب أطفال 400 جرام") == ("مواد غذائية", "ألبان ومشتقات")
+
+
+def test_mayonnaise_not_confused_with_water():
+    # هشاشة كانت موجودة: "ماي" بدون whole_word تتطابق داخل "مايونيز"، وتعتمد صدفة على
+    # ترتيب الفئات بملف categories.json (مياه بعد صلصات ومعلبات) — الحماية تخليها مستقلة عن الترتيب
+    assert get_category("مايونيز صحي 500 مل") == ("مواد غذائية", "صلصات ومعلبات")
+
+
 def test_unknown_item_falls_back():
     main, sub = get_category("جهاز كهربائي غريب تماماً")
     assert main == "مواد غذائية" and sub == "أخرى"
