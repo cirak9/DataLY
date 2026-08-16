@@ -50,6 +50,23 @@ def test_mayonnaise_not_confused_with_water():
     assert get_category("مايونيز صحي 500 مل") == ("مواد غذائية", "صلصات ومعلبات")
 
 
+def test_new_categories_from_100_item_invoice_audit():
+    # 7 تصنيفات جديدة أُضيفت بعد اختبار فاتورة حقيقية بـ100 صنف طلعت "أخرى" بدونها
+    assert get_category("شعيرية رفيعة 400 جرام") == ("مواد غذائية", "أرز وحبوب")
+    assert get_category("برغل ناعم 1 كجم") == ("مواد غذائية", "أرز وحبوب")
+    assert get_category("بيكنج باودر مسحوق خبيز 100 جرام") == ("مواد غذائية", "معجنات ودقيق")
+    assert get_category("مربى كرز 400 جرام") == ("مواد غذائية", "مربيات وعسل")
+    assert get_category("عسل نحل طبيعي 500 جرام") == ("مواد غذائية", "مربيات وعسل")
+    assert get_category("زيتون أسود معلب 400 جرام") == ("مواد غذائية", "زيتون ومخللات")
+    assert get_category("مسحوق بروتين رياضي 500 جرام") == ("مواد غذائية", "مكملات غذائية")
+
+
+def test_whole_word_asal_not_confused_with_moassal():
+    # "عسل" يجب ألا يتطابق مع "معسل" (تبغ الشيشة) — خطر مشابه لخلل "صن"/"صنف"
+    result = get_category("معسل تفاح 250 جرام")
+    assert result != ("مواد غذائية", "مربيات وعسل")
+
+
 def test_unknown_item_falls_back():
     main, sub = get_category("جهاز كهربائي غريب تماماً")
     assert main == "مواد غذائية" and sub == "أخرى"
