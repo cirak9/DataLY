@@ -20,12 +20,12 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "") -> str:
         cat_sub = str(row.get("التصنيف الفرعي", "")).strip()
         main_cat, sub_cat = _get_category_util(item_name, cat_main, cat_sub)
 
-        unit = str(row.get("العبوة", row.get("unit", ""))).strip()
-        unit = unit if unit.lower() not in ("nan", "") else ""
-
         total_units = float(row.get("total_units", 0) or 0)
         num_boxes = float(row.get("num_boxes", 0) or 0)
         per_box_int = int(row.get("per_box_int", 1) or 1)
+
+        # "العبوة" رقم عدد القطع بالعبوة (1 لو تُباع مفردة)، مو نص وصفي زي "شوال"/"عبوة"/"كيس"
+        unit = per_box_int
 
         unit_cost = float(row.get("unit_cost", 0) or 0)
         sale_price = float(row.get("سعر البيع", 0) or 0)
@@ -74,7 +74,7 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "") -> str:
         ws.write(0, ci, col, hdr)
         w = WIDTHS.get(col, 14)
         fmt = bc_fmt if col == "الكود" else (
-            num_fmt if col in ("التكلفة", "البيع", "العدد", "الصندوق", "ب_الصندوق") else (
+            num_fmt if col in ("التكلفة", "البيع", "العدد", "الصندوق", "ب_الصندوق", "العبوة") else (
                 txt if col == "الوصف" else cell))
         ws.set_column(ci, ci, w, fmt)
 
@@ -83,7 +83,7 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "") -> str:
             val = row[col]
             if col == "الكود":
                 ws.write_string(ri + 1, ci, str(val), bc_fmt)
-            elif col in ("التكلفة", "البيع", "العدد", "الصندوق", "ب_الصندوق"):
+            elif col in ("التكلفة", "البيع", "العدد", "الصندوق", "ب_الصندوق", "العبوة"):
                 ws.write_number(ri + 1, ci, float(val) if str(val) not in ("", "nan") else 0, num_fmt)
             elif col == "الوصف":
                 ws.write(ri + 1, ci, val, txt)
