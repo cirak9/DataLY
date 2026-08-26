@@ -43,15 +43,17 @@ def _find_column(df_columns: list, possible_names: list, already_used: set):
 
 
 def _clean_number(val) -> float:
-    if pd.isna(val):
-        return 0.0
-    cleaned = (
-        str(val).replace(",", "").replace("،", "")
-        .replace(" ", "").replace("د.ل", "").strip()
-    )
     try:
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return 0.0
+        cleaned = (
+            str(val).replace(",", "").replace("،", "")
+            .replace(" ", "").replace("د.ل", "").strip()
+        )
+        if not cleaned:
+            return 0.0
         return float(cleaned)
-    except ValueError:
+    except (ValueError, TypeError):
         return 0.0
 
 
@@ -106,7 +108,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in ["boxes", "per_box", "total_price", "cost_price", "discount_pct"]:
         if col in df.columns:
-            df[col] = df[col].apply(_clean_number)
+            df[col] = df[col].map(_clean_number)
 
     if "expiry_date" in df.columns:
         df["expiry_date"] = (

@@ -1,9 +1,9 @@
 # session/receiving_app.py
 # تشغيل: streamlit run session/receiving_app.py
+# دعم الطريقة الأولى والثانية
 
 import os
 import io
-import urllib.parse
 import pandas as pd
 import streamlit as st
 
@@ -20,6 +20,11 @@ st.set_page_config(
 st.markdown("""
 <style>
   .main-title { font-size:26px; font-weight:700; color:#0969DA; text-align:center; margin-bottom:4px; }
+  .method-badge { font-size:12px; font-weight:600; text-align:center;
+                  padding:6px 12px; border-radius:8px; margin-bottom:12px;
+                  display:inline-block; width:100%; }
+  .method1-badge { background:#FEE2E2; color:#991B1B; }
+  .method2-badge { background:#DCFCE7; color:#166534; }
   .item-name  { font-size:24px; font-weight:700; color:#0D1117; text-align:center;
                 padding:14px; background:#DDF4FF; border-radius:10px; margin-bottom:12px; }
   .counter    { font-size:13px; color:#57606A; text-align:center; margin-bottom:6px; }
@@ -27,6 +32,8 @@ st.markdown("""
                 background:#FFF8C5; border-radius:8px; padding:8px 0; margin-bottom:10px; }
   .done-msg   { font-size:16px; font-weight:700; color:#1A7F37; text-align:center;
                 background:#DCFFE4; border-radius:8px; padding:12px; margin:8px 0; }
+  .read-only-box { background:#F3F4F6; padding:12px; border-radius:8px; margin-bottom:12px;
+                   border-left:4px solid #6B7280; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -36,16 +43,31 @@ def load_template() -> pd.DataFrame:
     return pd.read_excel(SESSION_TEMPLATE, dtype={"item_id": int, "الباركود": str})
 
 
-def init_state(df: pd.DataFrame):
+def detect_method(df: pd.DataFrame) -> int:
+    """الكشف التلقائي عن الطريقة بناءً على البيانات في الملف"""
+    # إذا كان الباركود والصلاحية معبأين → الطريقة الثانية
+    # إذا كانا فارغين → الطريقة الأولى
+    if df.empty:
+        return 1
+    first_row = df.iloc[0]
+    barcode = str(first_row.get("الباركود", "")).strip()
+    expiry = str(first_row.get("الصلاحية", "")).strip()
+    if barcode and expiry:
+        return 2
+    return 1
+
+
+def init_state(df: pd.DataFrame, method: int):
     if "session_data" not in st.session_state:
         st.session_state.session_data = {}
+        st.session_state.method = method
         for _, row in df.iterrows():
             st.session_state.session_data[int(row["item_id"])] = {
                 "item_id":      int(row["item_id"]),
                 "الصنف":        str(row["الصنف"]),
                 "تكلفة_الوحدة": float(row.get("تكلفة الوحدة", 0) or 0),
-                "الباركود":     "",
-                "الصلاحية":     "",
+                "الباركود":     str(row.get("الباركود", "")).strip(),
+                "الصلاحية":     str(row.get("الصلاحية", "")).strip(),
                 "سعر البيع":    "",
                 "مكتمل":        False,
             }
@@ -53,12 +75,20 @@ def init_state(df: pd.DataFrame):
         st.session_state.current_index = 0
 
 
-def save_item(item_id: int, barcode: str, expiry: str, price: str):
+def save_item(item_id: int, barcode: str, expiry: str, price: str, method: int):
+    """حفظ بيانات الصنف حسب الطريقة"""
     e = st.session_state.session_data[item_id]
-    e["الباركود"]  = barcode.strip()
-    e["الصلاحية"]  = expiry.strip()
-    e["سعر البيع"] = price.strip()
-    e["مكتمل"]     = bool(barcode.strip() and expiry.strip() and price.strip())
+
+    if method == 1:
+        # الطريقة الأولى: جميع الحقول قابلة للتعديل
+        e["الباركود"]  = barcode.strip()
+        e["الصلاحية"]  = expiry.strip()
+        e["سعر البيع"] = price.strip()
+        e["مكتمل"]     = bool(barcode.strip() and expiry.strip() and price.strip())
+    else:
+        # الطريقة الثانية: فقط سعر البيع قابل للتعديل
+        e["سعر البيع"] = price.strip()
+        e["مكتمل"]     = bool(e["الباركود"] and e["الصلاحية"] and price.strip())
 
 
 def build_excel_bytes() -> bytes:
@@ -93,7 +123,8 @@ def main():
         return
 
     df = load_template()
-    init_state(df)
+    method = detect_method(df)
+    init_state(df, method)
 
     items      = list(st.session_state.session_data.values())
     total      = len(items)
@@ -103,6 +134,15 @@ def main():
     # ── رأس الصفحة ───────────────────────────────────────────────
     st.markdown('<div class="main-title">📦 Dataly — استلام البضاعة</div>',
                 unsafe_allow_html=True)
+
+    # عرض نوع الطريقة
+    if method == 1:
+        st.markdown('<div class="method-badge method1-badge">الطريقة الأولى — إدخال يدوي (باركود + صلاحية + سعر)</div>',
+                    unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="method-badge method2-badge">⚡ الطريقة الثانية — إدخال سريع (سعر فقط)</div>',
+                    unsafe_allow_html=True)
+
     st.progress(done_count / total if total > 0 else 0)
     st.markdown(f'<div class="counter">✅ {done_count} من {total} صنف مكتمل</div>',
                 unsafe_allow_html=True)
@@ -138,20 +178,36 @@ def main():
             unsafe_allow_html=True,
         )
 
-    # ── نموذج الإدخال ────────────────────────────────────────────
+    # ── نموذج الإدخال (يختلف حسب الطريقة) ────────────────────────
     with st.form(key=f"frm_{item_id}", clear_on_submit=False):
-        barcode = st.text_input(
-            "🔍 الباركود",
-            value=current_item["الباركود"],
-            placeholder="امسح الباركود...",
-            key=f"bc_{item_id}",
-        )
-        expiry = st.text_input(
-            "📅 الصلاحية (MM/YYYY)",
-            value=current_item["الصلاحية"],
-            placeholder="مثال: 06/2027",
-            key=f"exp_{item_id}",
-        )
+
+        if method == 1:
+            # الطريقة الأولى: حقول قابلة للتعديل
+            barcode = st.text_input(
+                "🔍 الباركود",
+                value=current_item["الباركود"],
+                placeholder="امسح الباركود...",
+                key=f"bc_{item_id}",
+            )
+            expiry = st.text_input(
+                "📅 الصلاحية (MM/YYYY)",
+                value=current_item["الصلاحية"],
+                placeholder="مثال: 06/2027",
+                key=f"exp_{item_id}",
+            )
+        else:
+            # الطريقة الثانية: عرض البيانات المعبأة (read-only)
+            barcode = current_item["الباركود"]
+            expiry = current_item["الصلاحية"]
+
+            st.markdown(f"""
+            <div class="read-only-box">
+                <strong>🔍 الباركود:</strong> {barcode}<br>
+                <strong>📅 الصلاحية:</strong> {expiry}
+            </div>
+            """, unsafe_allow_html=True)
+
+        # حقل سعر البيع (يظهر دائماً)
         price = st.text_input(
             "🏷️ سعر البيع (د.ل)",
             value=current_item["سعر البيع"],
@@ -170,7 +226,7 @@ def main():
             save_only = st.form_submit_button("💾 حفظ", use_container_width=True)
 
         if save_next or save_only:
-            save_item(item_id, barcode, expiry, price)
+            save_item(item_id, barcode, expiry, price, method)
             done_count = sum(1 for it in st.session_state.session_data.values() if it["مكتمل"])
             if save_next and idx < total - 1:
                 st.session_state.current_index = idx + 1
@@ -181,7 +237,7 @@ def main():
                 st.success("✅ تم الحفظ")
 
         if prev and idx > 0:
-            save_item(item_id, barcode, expiry, price)
+            save_item(item_id, barcode, expiry, price, method)
             st.session_state.current_index = idx - 1
             st.rerun()
 
@@ -211,6 +267,6 @@ def main():
                 use_container_width=True,
                 type="primary",
             )
-            
+
 if __name__ == "__main__":
     main()

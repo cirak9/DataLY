@@ -21,7 +21,6 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "") -> str:
         main_cat, sub_cat = _get_category_util(item_name, cat_main, cat_sub)
 
         total_units = float(row.get("total_units", 0) or 0)
-        num_boxes = float(row.get("num_boxes", 0) or 0)
         per_box_int = int(row.get("per_box_int", 1) or 1)
 
         # "العبوة" رقم عدد القطع بالعبوة (1 لو تُباع مفردة)، مو نص وصفي زي "شوال"/"عبوة"/"كيس"
@@ -45,7 +44,7 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "") -> str:
             "الكود": barcode, "الوصف": item_name, "العبوة": unit,
             "العدد": total_units, "التكلفة": unit_cost, "البيع": sale_price,
             "الصلاحية": expiry, "المورد": supplier, "فرعي": sub_cat,
-            "رئيسي": main_cat, "الصندوق": num_boxes, "ب_الصندوق": per_box_int,
+            "رئيسي": main_cat, "الصندوق": "", "ب_الصندوق": "",
         })
 
     COL_ORDER = ["الكود", "الوصف", "العبوة", "العدد", "التكلفة", "البيع",
@@ -74,7 +73,7 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "") -> str:
         ws.write(0, ci, col, hdr)
         w = WIDTHS.get(col, 14)
         fmt = bc_fmt if col == "الكود" else (
-            num_fmt if col in ("التكلفة", "البيع", "العدد", "الصندوق", "ب_الصندوق", "العبوة") else (
+            num_fmt if col in ("التكلفة", "البيع", "العدد", "العبوة") else (
                 txt if col == "الوصف" else cell))
         ws.set_column(ci, ci, w, fmt)
 
@@ -83,7 +82,7 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "") -> str:
             val = row[col]
             if col == "الكود":
                 ws.write_string(ri + 1, ci, str(val), bc_fmt)
-            elif col in ("التكلفة", "البيع", "العدد", "الصندوق", "ب_الصندوق", "العبوة"):
+            elif col in ("التكلفة", "البيع", "العدد", "العبوة"):
                 ws.write_number(ri + 1, ci, float(val) if str(val) not in ("", "nan") else 0, num_fmt)
             elif col == "الوصف":
                 ws.write(ri + 1, ci, val, txt)

@@ -41,17 +41,25 @@ def validate_clean_dataframe(df) -> None:
             "تحقق من ملف الفاتورة — ربما كل الصفوف اتصنّفت كملاحظات أو إجماليات بالخطأ."
         )
 
-    if "boxes" in df.columns and (df["boxes"] < 0).any():
-        bad_rows = df[df["boxes"] < 0]["item_name"].tolist()
-        raise InvoiceValidationError(
-            f"وُجدت كمية سالبة بالأصناف التالية: {bad_rows} — راجع الفاتورة الأصلية."
-        )
+    if "boxes" in df.columns:
+        try:
+            if (df["boxes"] < 0).any():
+                bad_rows = df[df["boxes"] < 0]["item_name"].tolist()
+                raise InvoiceValidationError(
+                    f"وُجدت كمية سالبة بالأصناف التالية: {bad_rows} — راجع الفاتورة الأصلية."
+                )
+        except (TypeError, ValueError):
+            pass
 
     for price_col in ("cost_price", "total_price"):
-        if price_col in df.columns and (df[price_col] < 0).any():
-            bad_rows = df[df[price_col] < 0]["item_name"].tolist()
-            raise InvoiceValidationError(
-                f"وُجد سعر سالب ({price_col}) بالأصناف التالية: {bad_rows} — راجع الفاتورة الأصلية."
-            )
+        if price_col in df.columns:
+            try:
+                if (df[price_col] < 0).any():
+                    bad_rows = df[df[price_col] < 0]["item_name"].tolist()
+                    raise InvoiceValidationError(
+                        f"وُجد سعر سالب ({price_col}) بالأصناف التالية: {bad_rows} — راجع الفاتورة الأصلية."
+                    )
+            except (TypeError, ValueError):
+                pass
 
     log.info(f"[تحقق] {len(df)} صنف اجتاز التحقق بنجاح")

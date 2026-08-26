@@ -17,11 +17,18 @@ def _extract_per_box_from_unit(unit: str) -> int:
     return 1
 
 
-def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "") -> tuple[str, str]:
+def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "", store_id: str = "", method: int = 1) -> tuple[str, str]:
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
-    session_path = os.path.join(DATA_DIR, "session_template.xlsx")
+    # إذا تم تحديد store_id، نحفظ الملفات في مجلد المتجر
+    if store_id:
+        store_dir = os.path.join(DATA_DIR, store_id)
+        os.makedirs(store_dir, exist_ok=True)
+        invoice_path = os.path.join(store_dir, "invoice_data.xlsx")
+        session_path = os.path.join(store_dir, "session_template.xlsx")
+    else:
+        invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
+        session_path = os.path.join(DATA_DIR, "session_template.xlsx")
 
     df = df_clean.copy()
 
@@ -36,26 +43,32 @@ def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "") -> t
         return round(price * (1 - disc), 3)
 
     def calc_unit_cost(row) -> float:
-        boxes = float(row.get("boxes", 0) or 0)
-        per_box_int = calc_per_box(row)
-        total_units = boxes * per_box_int if per_box_int > 1 else boxes
-        total_p = _apply_discount(float(row.get("total_price", 0) or 0), row)
-        cost_p = _apply_discount(float(row.get("cost_price", 0) or 0), row)
-        if total_p > 0 and total_units > 0:
-            return round(total_p / total_units, 3)
-        if cost_p > 0:
-            return round(cost_p, 3)
-        return 0.0
+        try:
+            boxes = float(row.get("boxes", 0) or 0)
+            per_box_int = calc_per_box(row)
+            total_units = boxes * per_box_int if per_box_int > 1 else boxes
+            total_p = _apply_discount(float(row.get("total_price", 0) or 0), row)
+            cost_p = _apply_discount(float(row.get("cost_price", 0) or 0), row)
+            if total_p > 0 and total_units > 0:
+                return round(total_p / total_units, 3)
+            if cost_p > 0:
+                return round(cost_p, 3)
+            return 0.0
+        except (TypeError, ValueError, ZeroDivisionError):
+            return 0.0
 
     def calc_total(row) -> float:
-        total_p = _apply_discount(float(row.get("total_price", 0) or 0), row)
-        if total_p > 0:
-            return round(total_p, 3)
-        boxes = float(row.get("boxes", 0) or 0)
-        cost_p = _apply_discount(float(row.get("cost_price", 0) or 0), row)
-        if boxes > 0 and cost_p > 0:
-            return round(boxes * cost_p, 3)
-        return 0.0
+        try:
+            total_p = _apply_discount(float(row.get("total_price", 0) or 0), row)
+            if total_p > 0:
+                return round(total_p, 3)
+            boxes = float(row.get("boxes", 0) or 0)
+            cost_p = _apply_discount(float(row.get("cost_price", 0) or 0), row)
+            if boxes > 0 and cost_p > 0:
+                return round(boxes * cost_p, 3)
+            return 0.0
+        except (TypeError, ValueError):
+            return 0.0
 
     df["per_box_calc"] = df.apply(calc_per_box, axis=1)
     df["unit_cost"] = df.apply(calc_unit_cost, axis=1)
@@ -119,11 +132,27 @@ def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "") -> t
             ws.write(ri + 1, ci, val, fmt)
     writer_inv.close()
 
-    df_ses = pd.DataFrame({
-        "item_id": df["item_id"], "الصنف": df["item_name"],
-        "تكلفة الوحدة": df["unit_cost"], "الباركود": [""] * len(df),
-        "الصلاحية": [""] * len(df), "سعر البيع": [""] * len(df),
-    })
+    # بناء جلسة الاستلام حسب الطريقة
+    if method == 2:
+        # الطريقة الثانية: واجهة مبسطة (سعر البيع فقط)
+        # الباركود والصلاحية معبأة مسبقاً من مخزون المورد
+        df_ses = pd.DataFrame({
+            "item_id": df["item_id"],
+            "الصنف": df.get("final_name", df["item_name"]),
+            "الباركود": df.get("barcode", ""),
+            "الصلاحية": df.get("expiration", ""),
+            "سعر البيع": [""] * len(df),
+        })
+    else:
+        # الطريقة الأولى: واجهة عادية (باركود + صلاحية + سعر البيع)
+        df_ses = pd.DataFrame({
+            "item_id": df["item_id"],
+            "الصنف": df.get("final_name", df["item_name"]),
+            "تكلفة الوحدة": df.get("unit_cost", 0),
+            "الباركود": [""] * len(df),
+            "الصلاحية": [""] * len(df),
+            "سعر البيع": [""] * len(df),
+        })
 
     writer_ses = pd.ExcelWriter(session_path, engine="xlsxwriter")
     df_ses.to_excel(writer_ses, index=False, sheet_name="جلسة_الاستلام")
@@ -143,16 +172,38 @@ def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "") -> t
     txt_f = wb2.add_format({"align": "center", "valign": "vcenter", "border": 1,
                              "font_name": "Arial", "font_size": 10, "num_format": "@"})
 
-    col_cfg = [
-        ("item_id", 8, locked), ("الصنف", 36, locked),
-        ("تكلفة الوحدة", 16, cost_f), ("الباركود", 22, txt_f),
-        ("الصلاحية", 15, inp), ("سعر البيع", 14, inp),
-    ]
+    # تكوين الأعمدة حسب الطريقة
+    if method == 2:
+        # الطريقة الثانية: أعمدة مبسطة
+        col_cfg = [
+            ("item_id", 8, locked),
+            ("الصنف", 36, locked),
+            ("الباركود", 22, locked),
+            ("الصلاحية", 15, locked),
+            ("سعر البيع", 14, inp),
+        ]
+    else:
+        # الطريقة الأولى: أعمدة كاملة
+        col_cfg = [
+            ("item_id", 8, locked),
+            ("الصنف", 36, locked),
+            ("تكلفة الوحدة", 16, cost_f),
+            ("الباركود", 22, txt_f),
+            ("الصلاحية", 15, inp),
+            ("سعر البيع", 14, inp),
+        ]
+
     for ci, (col, w, fmt) in enumerate(col_cfg):
+        if col not in df_ses.columns:
+            continue
         ws2.write(0, ci, col, hdr2)
         ws2.set_column(ci, ci, w, fmt)
         for ri, val in enumerate(df_ses[col]):
-            if col == "الباركود":
+            if col in ["الباركود", "الصلاحية"] and method == 2:
+                # في الطريقة الثانية، الباركود والصلاحية مقفولة (معبأة مسبقاً)
+                ws2.write(ri + 1, ci, val, locked)
+            elif col == "الباركود" and method == 1:
+                # في الطريقة الأولى، الباركود فارغ للإدخال
                 ws2.write_string(ri + 1, ci, "", txt_f)
             else:
                 ws2.write(ri + 1, ci, val, fmt)

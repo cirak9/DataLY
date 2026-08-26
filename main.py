@@ -1,97 +1,139 @@
-# main.py — v6
+# main.py — v7 (دعم الطريقة الأولى والثانية)
 import sys
 import os
+import argparse
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-from extractors.excel_extractor import extract_from_excel
-from transformers.base_cleaner import clean_data
-from session.session_generator import generate_session_files
+from fusion.method_router import detect_method
+from pipelines.method_1_pipeline import run_method_1
+from pipelines.method_2_pipeline import run_method_2
 from fusion.reconciliation import reconcile, MasterDataError
 from fusion.merge import merge_invoice_and_session
+from fusion.inventory_manager import InventoryManager
 from adapters.alsahl_adapter import export_to_alsahl
-from utils.validators import InvoiceValidationError
 from utils.logger import get_logger
 
 log = get_logger()
 
 SUPPORTED_EXCEL = {".xlsx", ".xls"}
-VERSION = "6.1.1"
+VERSION = "7.0.0"
 
 
-def process_invoice(file_path: str):
-    log.info("=" * 60)
-    log.info(f"DataLY v{VERSION} — معالجة الفاتورة: {os.path.basename(file_path)}")
-    log.info("=" * 60)
-
-    if not os.path.exists(file_path):
-        log.error(f"الملف غير موجود: {file_path}")
+def process_invoice(store_id: str, inventory_path: str, invoice_path: str, supplier_path: str = None, method_override: int = None):
+    """
+    معالجة الفاتورة حسب الطريقة (الأولى أو الثانية)
+    """
+    if not os.path.exists(invoice_path):
+        log.error(f"الملف غير موجود: {invoice_path}")
         return
 
-    ext = os.path.splitext(file_path)[1].lower()
+    ext = os.path.splitext(invoice_path)[1].lower()
     if ext not in SUPPORTED_EXCEL:
         log.error(f"نوع الملف غير مدعوم ({ext}) — الصيغ المدعومة: {SUPPORTED_EXCEL}")
         return
 
+    # تحديد الطريقة
+    method = detect_method(supplier_path, method_override)
+
     try:
-        raw_df, supplier = extract_from_excel(file_path)
-        if raw_df.empty:
-            log.error("لم يتم استخراج أي بيانات من الفاتورة")
-            return
+        if method == 1:
+            run_method_1(store_id, inventory_path, invoice_path)
+        else:
+            if not supplier_path:
+                log.error("الطريقة الثانية تتطلب ملف مخزون المورد (--supplier)")
+                return
+            run_method_2(store_id, inventory_path, invoice_path, supplier_path)
 
-        clean_df = clean_data(raw_df)  # فيها تحقق مدمج، هترفع خطأ واضح لو فيه مشكلة
-        log.info(f"{len(clean_df)} صنف صالح بعد التنظيف")
-
-        invoice_path, session_path = generate_session_files(clean_df, supplier_name=supplier)
-
-    except InvoiceValidationError as e:
-        log.error(f"فشل التحقق من صحة البيانات: {e}")
-        return
-
-    log.info("=" * 60)
-    log.info("✅ جاهز! الخطوات التالية:")
-    log.info(f"   1) أرسل {os.path.basename(session_path)} للتاجر")
-    log.info("   2) streamlit run session/receiving_app.py")
-    log.info("   3) انقل session_output.xlsx لمجلد data/ بعد اكتمال التاجر")
-    log.info("   4) python main.py --merge")
-    log.info("=" * 60)
+    except Exception as e:
+        log.error(f"❌ خطأ أثناء المعالجة: {e}")
+        raise
 
 
-def process_merge():
-    log.info("=" * 60)
-    log.info(f"DataLY v{VERSION} — دمج الجلسة وتصدير ملف السهل")
-    log.info("=" * 60)
+def process_merge(store_id: str):
+    """
+    دمج جلسة الاستلام والتصدير لمنظومة السهل
+    """
+    log.info("=" * 80)
+    log.info(f"🔄 دمج الجلسة وتصدير ملف السهل — المتجر: {store_id}")
+    log.info("=" * 80)
 
     try:
         match_count = reconcile()
         if match_count:
             log.info(f"ℹ️ {match_count} تطابق عُرض للموافقة أثناء التشغيل")
+
         df_merged = merge_invoice_and_session()
+        output_path = export_to_alsahl(df_merged)
+
+        # تحديث جرد المخزون
+        log.info("\n📊 تحديث جرد المخزون...")
+        inventory_mgr = InventoryManager(store_id)
+        old_inventory = inventory_mgr.load_old_inventory()
+        updated_inventory = inventory_mgr.update_inventory(old_inventory, df_merged)
+        inventory_mgr.save_updated_inventory(updated_inventory)
+
+        log.info("=" * 80)
+        log.info(f"✅ اكتمل! ارفع {os.path.basename(output_path)} في شاشة 'فاتورة مشتريات' بمنظومة السهل")
+        log.info("=" * 80)
+
     except (FileNotFoundError, MasterDataError) as e:
         log.error(str(e))
         return
-
-    output_path = export_to_alsahl(df_merged)
-
-    log.info("=" * 60)
-    log.info(f"✅ اكتمل! ارفع {os.path.basename(output_path)} في شاشة 'فاتورة مشتريات' بمنظومة السهل")
-    log.info("=" * 60)
 
 
 def main():
     if len(sys.argv) < 2:
         print(f"DataLY v{VERSION}")
+        print("")
         print("الاستخدام:")
-        print("  python main.py invoice.xlsx    ← معالجة فاتورة جديدة")
-        print("  python main.py --merge         ← دمج جلسة التاجر وتصدير ملف السهل")
+        print("")
+        print("  الطريقة الأولى (مخزون المتجر فقط):")
+        print("    python main.py \\")
+        print("      --store store_1 \\")
+        print("      --inventory data/store_1/old_inventory.xlsx \\")
+        print("      --invoice data/store_1/invoice.xlsx")
+        print("")
+        print("  الطريقة الثانية (مع مخزون المورد):")
+        print("    python main.py \\")
+        print("      --store store_1 \\")
+        print("      --inventory data/store_1/old_inventory.xlsx \\")
+        print("      --invoice data/store_1/invoice.xlsx \\")
+        print("      --supplier data/store_1/supplier_inventory.xlsx")
+        print("")
+        print("  إجبار طريقة معينة:")
+        print("    python main.py \\")
+        print("      --store store_1 \\")
+        print("      --inventory data/store_1/old_inventory.xlsx \\")
+        print("      --invoice data/store_1/invoice.xlsx \\")
+        print("      --method 1")
+        print("")
+        print("  الدمج والتصدير:")
+        print("    python main.py --merge --store store_1")
+        print("")
         return
 
-    arg = sys.argv[1].strip()
-    if arg == "--merge":
-        process_merge()
+    parser = argparse.ArgumentParser(description="DataLY — معالجة فواتير الموردين")
+    parser.add_argument("--store", required=False, help="معرف المتجر (store_1, store_2, ...)")
+    parser.add_argument("--inventory", help="مسار ملف المخزون القديم")
+    parser.add_argument("--invoice", help="مسار ملف الفاتورة")
+    parser.add_argument("--supplier", help="مسار ملف مخزون المورد (اختياري)")
+    parser.add_argument("--method", type=int, choices=[1, 2], help="فرض طريقة معينة (1 أو 2)")
+    parser.add_argument("--merge", action="store_true", help="دمج وتصدير")
+
+    args = parser.parse_args()
+
+    if args.merge:
+        if not args.store:
+            log.error("--merge تتطلب --store")
+            return
+        process_merge(args.store)
     else:
-        process_invoice(arg)
+        if not all([args.store, args.inventory, args.invoice]):
+            log.error("معالجة الفاتورة تتطلب: --store, --inventory, --invoice")
+            return
+        process_invoice(args.store, args.inventory, args.invoice, args.supplier, args.method)
 
 
 if __name__ == "__main__":
