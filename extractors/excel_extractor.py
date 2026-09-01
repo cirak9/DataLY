@@ -8,6 +8,8 @@ POSSIBLE_COLUMNS = {
     "item_name": [
         "اسم الصنف", "اسم المنتج", "اسم المادة",
         "البيان", "الوصف", "المادة", "الصنف/البيان",
+        "item name", "item description", "description",
+        "product name", "product description", "name",
     ],
     "category": [
         "التصنيف", "الفئة", "نوع الصنف",

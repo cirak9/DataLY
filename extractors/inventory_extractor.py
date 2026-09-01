@@ -6,45 +6,55 @@ from utils.logger import get_logger
 log = get_logger()
 
 INVENTORY_POSSIBLE_COLUMNS = {
-    'barcode': ['باركود', 'كود', 'code', 'barcode', 'sku', 'رمز'],
-    'name': ['اسم الصنف', 'الاسم', 'name', 'product_name', 'وصف'],
-    'expiration': ['صلاحية', 'انتهاء', 'expiration', 'expiry', 'تاريخ الانتهاء']
+    'barcode': [
+        'باركود', 'الباركود', 'كود', 'الكود', 'كود الصنف', 'رمز', 'الرمز',
+        'code', 'barcode', 'bar code', 'sku', 'item code',
+    ],
+    'name': [
+        'اسم الصنف', 'الاسم', 'اسم المنتج', 'الصنف', 'الوصف', 'وصف الصنف',
+        'name', 'product_name', 'product name', 'item name', 'description',
+    ],
+    'expiration': [
+        'صلاحية', 'الصلاحية', 'انتهاء', 'تاريخ الانتهاء', 'تاريخ الصلاحية',
+        'expiration', 'expiry', 'exp date', 'exp. date',
+    ],
 }
+
+
+def _find_inventory_column(columns: list, hints: list, exact: bool) -> str:
+    for hint in hints:
+        h = hint.lower().strip()
+        for col in columns:
+            col_lower = col.lower().strip()
+            if (col_lower == h) if exact else (h in col_lower):
+                return col
+    return None
 
 
 def detect_inventory_columns(df: pd.DataFrame) -> Tuple[str, str, str]:
     """
-    تحديد أعمدة المخزون تلقائياً من أي ملف
+    تحديد أعمدة المخزون تلقائياً من أي ملف — تطابق تام أول لكل الأعمدة الثلاثة،
+    وبعدين تطابق تقريبي (احتواء) لأي عمود لسا ناقص، عشان صيغ شائعة زي "الباركود"
+    بألف التعريف أو تسميات المنظومة المختلفة ما توقف البرنامج بدون داعي.
 
     Returns:
         (barcode_col, name_col, expiration_col)
     """
     columns = [col.strip() for col in df.columns]
 
-    barcode_col = None
-    name_col = None
-    expiration_col = None
+    barcode_col = _find_inventory_column(columns, INVENTORY_POSSIBLE_COLUMNS['barcode'], exact=True)
+    name_col = _find_inventory_column(columns, INVENTORY_POSSIBLE_COLUMNS['name'], exact=True)
+    expiration_col = _find_inventory_column(columns, INVENTORY_POSSIBLE_COLUMNS['expiration'], exact=True)
 
-    for col in columns:
-        col_lower = col.lower().strip()
-
-        if barcode_col is None:
-            for possible in INVENTORY_POSSIBLE_COLUMNS['barcode']:
-                if col_lower == possible.lower().strip():
-                    barcode_col = col
-                    break
-
-        if name_col is None:
-            for possible in INVENTORY_POSSIBLE_COLUMNS['name']:
-                if col_lower == possible.lower().strip():
-                    name_col = col
-                    break
-
-        if expiration_col is None:
-            for possible in INVENTORY_POSSIBLE_COLUMNS['expiration']:
-                if col_lower == possible.lower().strip():
-                    expiration_col = col
-                    break
+    remaining = [c for c in columns if c not in (barcode_col, name_col, expiration_col)]
+    if barcode_col is None:
+        barcode_col = _find_inventory_column(remaining, INVENTORY_POSSIBLE_COLUMNS['barcode'], exact=False)
+        remaining = [c for c in remaining if c != barcode_col]
+    if name_col is None:
+        name_col = _find_inventory_column(remaining, INVENTORY_POSSIBLE_COLUMNS['name'], exact=False)
+        remaining = [c for c in remaining if c != name_col]
+    if expiration_col is None:
+        expiration_col = _find_inventory_column(remaining, INVENTORY_POSSIBLE_COLUMNS['expiration'], exact=False)
 
     if not barcode_col or not name_col or not expiration_col:
         missing = []

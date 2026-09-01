@@ -16,14 +16,17 @@ def _extract_per_box_from_unit(unit: str) -> int:
     return 1
 
 
-def merge_invoice_and_session() -> pd.DataFrame:
-    invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
-    session_path = os.path.join(DATA_DIR, "session_output.xlsx")
+def merge_invoice_and_session(store_id: str = None) -> pd.DataFrame:
+    # session/session_generator.py يكتب invoice_data.xlsx وsession_output.xlsx داخل
+    # data/<store_id>/ بمجرد ما store_id يُمرَّر — لازم نقرأ من نفس المجلد هنا.
+    store_dir = os.path.join(DATA_DIR, store_id) if store_id else DATA_DIR
+    invoice_path = os.path.join(store_dir, "invoice_data.xlsx")
+    session_path = os.path.join(store_dir, "session_output.xlsx")
 
     if not os.path.exists(invoice_path):
-        raise FileNotFoundError(f"invoice_data.xlsx غير موجود في {DATA_DIR}")
+        raise FileNotFoundError(f"invoice_data.xlsx غير موجود في {store_dir}")
     if not os.path.exists(session_path):
-        raise FileNotFoundError(f"session_output.xlsx غير موجود في {DATA_DIR}")
+        raise FileNotFoundError(f"session_output.xlsx غير موجود في {store_dir}")
 
     df_inv = pd.read_excel(invoice_path)
     df_ses = pd.read_excel(session_path, dtype={"الباركود": str})

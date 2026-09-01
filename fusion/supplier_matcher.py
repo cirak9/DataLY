@@ -34,7 +34,7 @@ def enrich_invoice_from_supplier(invoice_df: pd.DataFrame, supplier_inventory: p
         enriched['expiration'] = ''
 
     for idx, row in enriched.iterrows():
-        invoice_name = str(row.get('name', '')).strip()
+        invoice_name = str(row.get('item_name', '')).strip()
 
         if not invoice_name:
             log.warning(f"صنف بدون اسم (الصف {idx})")
@@ -62,7 +62,7 @@ def enrich_invoice_from_supplier(invoice_df: pd.DataFrame, supplier_inventory: p
             enrichment_issues.append({
                 'index': idx,
                 'name': invoice_name,
-                'reason': 'no_match' if not best_match else f'low_score_{best_score}'
+                'reason': 'no_match' if best_match is None else f'low_score_{best_score}'
             })
             log.warning(f"✗ صنف جديد #{idx}: '{invoice_name}' (لم نجد تطابق)")
 
@@ -89,12 +89,13 @@ def match_enriched_invoice_with_inventory(enriched_invoice: pd.DataFrame, old_in
     result_df = enriched_invoice.copy()
     matches_requiring_approval = []
 
+    # عمود الاسم القياسي بعد transformers/base_cleaner.py اسمه item_name، مو name.
     if 'final_name' not in result_df.columns:
-        result_df['final_name'] = result_df.get('name', '')
+        result_df['final_name'] = result_df.get('item_name', '')
 
     for idx, row in result_df.iterrows():
         barcode = str(row.get('barcode', '')).strip()
-        invoice_name = str(row.get('name', '')).strip()
+        invoice_name = str(row.get('item_name', '')).strip()
         expiration = str(row.get('expiration', '')).strip()
 
         if not barcode:

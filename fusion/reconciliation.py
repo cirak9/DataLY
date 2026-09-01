@@ -389,18 +389,21 @@ def resolve_matches_interactively(
     return df_inv, df_ses, pending_matches
 
 
-def reconcile() -> int:
-    """غلاف الملفات: يقرأ invoice_data/session_output من data/، ويقرأ master_items.xlsx
-    للمقارنة فقط (لا يُعدَّل ولا يُحفظ أبدًا — كل تشغيلة تجيب قاعدة حديثة من الخارج)،
-    يعرض أي تطابق مُقترَح بالطرفية لموافقة فورية (كل تطابق، مو بس المتعارض)، يكتب
-    invoice_data/session_output المحدّثين بس، ويرجّع عدد التطابقات اللي عُرضت للموافقة."""
-    invoice_path = os.path.join(DATA_DIR, "invoice_data.xlsx")
-    session_path = os.path.join(DATA_DIR, "session_output.xlsx")
+def reconcile(store_id: str = None) -> int:
+    """غلاف الملفات: يقرأ invoice_data/session_output من data/<store_id>/ (نفس المجلد
+    اللي session/session_generator.py يكتب فيه)، ويقرأ master_items.xlsx من جذر data/
+    للمقارنة فقط (لا يُعدَّل ولا يُحفظ أبدًا — كل تشغيلة تجيب قاعدة حديثة من الخارج، وهذا
+    الملف مقصود يبقى بمسار واحد بلا معامل متجر — راجع ARCHITECTURE.md)، يعرض أي تطابق
+    مُقترَح بالطرفية لموافقة فورية (كل تطابق، مو بس المتعارض)، يكتب invoice_data/session_output
+    المحدّثين بس، ويرجّع عدد التطابقات اللي عُرضت للموافقة."""
+    store_dir = os.path.join(DATA_DIR, store_id) if store_id else DATA_DIR
+    invoice_path = os.path.join(store_dir, "invoice_data.xlsx")
+    session_path = os.path.join(store_dir, "session_output.xlsx")
 
     if not os.path.exists(invoice_path):
-        raise FileNotFoundError(f"invoice_data.xlsx غير موجود في {DATA_DIR}")
+        raise FileNotFoundError(f"invoice_data.xlsx غير موجود في {store_dir}")
     if not os.path.exists(session_path):
-        raise FileNotFoundError(f"session_output.xlsx غير موجود في {DATA_DIR}")
+        raise FileNotFoundError(f"session_output.xlsx غير موجود في {store_dir}")
 
     df_inv = pd.read_excel(invoice_path)
     df_ses = pd.read_excel(session_path, dtype={"الباركود": str})

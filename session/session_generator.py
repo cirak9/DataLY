@@ -44,9 +44,9 @@ def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "", stor
 
     def calc_unit_cost(row) -> float:
         try:
-            boxes = float(row.get("boxes", 0) or 0)
-            per_box_int = calc_per_box(row)
-            total_units = boxes * per_box_int if per_box_int > 1 else boxes
+            # الكمية بالفاتورة = عدد قطع مفردة أصلًا (راجع ARCHITECTURE.md)، مو عدد صناديق —
+            # نفس القاعدة اللي fusion/merge.py يطبّقها؛ بدون ضرب بعدد القطع بالعبوة.
+            total_units = float(row.get("boxes", 0) or 0)
             total_p = _apply_discount(float(row.get("total_price", 0) or 0), row)
             cost_p = _apply_discount(float(row.get("cost_price", 0) or 0), row)
             if total_p > 0 and total_units > 0:

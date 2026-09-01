@@ -60,12 +60,12 @@ def process_merge(store_id: str):
     log.info("=" * 80)
 
     try:
-        match_count = reconcile()
+        match_count = reconcile(store_id)
         if match_count:
             log.info(f"ℹ️ {match_count} تطابق عُرض للموافقة أثناء التشغيل")
 
-        df_merged = merge_invoice_and_session()
-        output_path = export_to_alsahl(df_merged)
+        df_merged = merge_invoice_and_session(store_id)
+        output_path = export_to_alsahl(df_merged, store_id=store_id)
 
         # تحديث جرد المخزون
         log.info("\n📊 تحديث جرد المخزون...")

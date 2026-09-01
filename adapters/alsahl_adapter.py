@@ -9,9 +9,11 @@ log = get_logger()
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
 
 
-def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "") -> str:
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(OUTPUT_DIR, "output_alsahl.xlsx")
+def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "", store_id: str = None) -> str:
+    # مجلد إخراج منفصل لكل متجر — بدون هذا، متجرين يشتغلون بنفس التثبيت يتكاتبون على نفس الملف.
+    output_dir = os.path.join(OUTPUT_DIR, store_id) if store_id else OUTPUT_DIR
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "output_alsahl.xlsx")
 
     rows = []
     for _, row in df_merged.iterrows():

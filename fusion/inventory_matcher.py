@@ -26,15 +26,16 @@ def match_invoice_with_inventory(invoice_df: pd.DataFrame, old_inventory: pd.Dat
     matches_requiring_approval = []
 
     # إعادة تسمية عمود الاسم إذا لم يكن موجود
+    # عمود الاسم القياسي بعد transformers/base_cleaner.py اسمه item_name، مو name.
     if 'final_name' not in result_df.columns:
-        result_df['final_name'] = result_df.get('name', '')
+        result_df['final_name'] = result_df.get('item_name', '')
 
     # للتكامل مع الكود الموجود، نتحقق من عمود الباركود
     barcode_col = 'barcode' if 'barcode' in result_df.columns else 'code'
 
     for idx, row in result_df.iterrows():
         invoice_barcode = str(row.get(barcode_col, '')).strip()
-        invoice_name = str(row.get('name', '')).strip()
+        invoice_name = str(row.get('item_name', '')).strip()
 
         if not invoice_barcode:
             log.warning(f"صنف بدون باركود (الصف {idx}): {invoice_name}")
