@@ -8,6 +8,7 @@ from functools import lru_cache
 from rapidfuzz import fuzz
 
 from utils.logger import get_logger
+from utils import barcode_categories
 
 _ARABIC = r'[؀-ۿ]'
 _CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
@@ -54,14 +55,22 @@ def _extract_words(text: str):
 
 
 @lru_cache(maxsize=5000)
-def get_category(item_name: str, category_hint: str = "", sub_hint: str = "") -> tuple[str, str]:
+def get_category(item_name: str, category_hint: str = "", sub_hint: str = "", barcode: str = "") -> tuple[str, str]:
     """
     تصنيف سريع — طريقة معكوسة
     بدل البحث عن 61,000 كلمة في النص،
     نقسّم النص لكلمات ونبحث كل كلمة في الفهرس
+
+    ترتيب الأولوية: تصنيف مُعتمَد مسبقًا (sub_hint) > الفهرس المركزي بالباركود (مبني من
+    جرد حقيقي عبر كل المتاجر) > تطابق كلمات مفتاحية > تقريبي > تخمين عام.
     """
     if sub_hint and sub_hint not in ("أخرى", "", "nan", "None"):
         return category_hint, sub_hint
+
+    if barcode:
+        indexed = barcode_categories.lookup(barcode)
+        if indexed:
+            return indexed
 
     text = f"{item_name} {category_hint}".strip()
     text_lower = text.lower()

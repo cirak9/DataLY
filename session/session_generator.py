@@ -74,8 +74,10 @@ def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "", stor
     df["unit_cost"] = df.apply(calc_unit_cost, axis=1)
     df["الإجمالي"] = df.apply(calc_total, axis=1)
 
+    # الباركود متوفّر هنا فقط بالطريقة الثانية (بعد إثراء المورد) — فاضي بالطريقة الأولى
+    # (لسا ما كتبه التاجر)، وget_category يتجاهله بأمان لو فاضي.
     cats = df.apply(
-        lambda r: get_category(str(r.get("item_name", "")), str(r.get("category", ""))),
+        lambda r: get_category(str(r.get("item_name", "")), str(r.get("category", "")), "", str(r.get("barcode", ""))),
         axis=1,
     )
     df["التصنيف الرئيسي"] = [c[0] for c in cats]

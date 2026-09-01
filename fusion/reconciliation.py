@@ -9,6 +9,7 @@ import re
 import pandas as pd
 from rapidfuzz import fuzz, process
 from utils.logger import get_logger
+from utils import barcode_categories
 
 log = get_logger()
 
@@ -411,6 +412,12 @@ def reconcile(store_id: str = None) -> int:
     df_ses["item_id"] = pd.to_numeric(df_ses["item_id"], errors="coerce").fillna(0).astype(int)
 
     master_df = load_master()
+    # تغذية فهرس التصنيف المركزي تلقائيًا من نفس الملف — بلا أي خطوة يدوية إضافية.
+    # لا يمس master_items.xlsx نفسه ولا يغيّر سلوك التوحيد؛ فقط يحفظ التصنيفات
+    # (لو موجودة بالملف) بفهرس منفصل يخدم كل المتاجر لاحقًا عبر utils/categorizer.py.
+    barcode_categories.learn_from_dataframe(
+        master_df, "الباركود", "التصنيف الرئيسي", "التصنيف الفرعي", "اسم الصنف", store_id or ""
+    )
     df_inv, df_ses, pending_matches = reconcile_dataframes(df_inv, df_ses, master_df)
     df_inv, df_ses, decisions = resolve_matches_interactively(df_inv, df_ses, pending_matches)
 

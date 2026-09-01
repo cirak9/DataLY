@@ -20,7 +20,15 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "", store_id:
         item_name = str(row.get("item_name", "")).strip()
         cat_main = str(row.get("التصنيف الرئيسي", "")).strip()
         cat_sub = str(row.get("التصنيف الفرعي", "")).strip()
-        main_cat, sub_cat = _get_category_util(item_name, cat_main, cat_sub)
+
+        barcode = str(row.get("الباركود", "")).strip()
+        if not barcode or barcode.lower() == "nan":
+            barcode = str(row.get("supplier_item_code", "")).strip()
+        barcode = barcode if barcode and barcode.lower() not in ("nan", "") else ""
+
+        # الباركود متوفّر هنا (بعد الدمج/الإثراء) — يتيح للفهرس المركزي (utils/barcode_categories)
+        # يعطي تصنيف مؤكد من جرد حقيقي بدل التخمين بالكلمات المفتاحية، لو الباركود معروف له.
+        main_cat, sub_cat = _get_category_util(item_name, cat_main, cat_sub, barcode)
 
         total_units = float(row.get("total_units", 0) or 0)
         per_box_int = int(row.get("per_box_int", 1) or 1)
@@ -30,11 +38,6 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "", store_id:
 
         unit_cost = float(row.get("unit_cost", 0) or 0)
         sale_price = float(row.get("سعر البيع", 0) or 0)
-
-        barcode = str(row.get("الباركود", "")).strip()
-        if not barcode or barcode.lower() == "nan":
-            barcode = str(row.get("supplier_item_code", "")).strip()
-        barcode = barcode if barcode and barcode.lower() not in ("nan", "") else ""
 
         expiry = str(row.get("الصلاحية", "")).strip()
         expiry = expiry if expiry and expiry.lower() != "nan" else ""
