@@ -97,5 +97,18 @@ def merge_invoice_and_session() -> pd.DataFrame:
         if cat_col not in df.columns:
             df[cat_col] = ""
 
+    # إضافة الأعمدة الإنجليزية للمتطلبات الأخرى (خاصة inventory_manager)
+    if "الباركود" in df.columns and "barcode" not in df.columns:
+        df["barcode"] = df["الباركود"]
+
+    # استخدم item_name الموجود أو الوصف
+    if "item_name" in df.columns and "name" not in df.columns:
+        df["name"] = df["item_name"]
+    elif "الوصف" in df.columns and "name" not in df.columns:
+        df["name"] = df["الوصف"]
+
+    if "الصلاحية" in df.columns and "expiration" not in df.columns:
+        df["expiration"] = df["الصلاحية"]
+
     log.info(f"تم الدمج: {len(df)} صنف مكتمل")
     return df
