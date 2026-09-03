@@ -14,7 +14,7 @@ from utils.logger import get_logger
 
 log = get_logger()
 
-_INDEX_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "barcode_categories.json")
+_INDEX_PATH = os.path.join(os.path.dirname(__file__), "barcode_categories.json")
 _IGNORED_SUB = ("", "أخرى", "nan", "none")
 
 _cache = None  # يُحمَّل مرة وحدة بالذاكرة، يُكتب للقرص عند كل تحديث فعلي بس

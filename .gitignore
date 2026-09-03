@@ -1,6 +1,6 @@
 __pycache__/
 *.pyc
 data/*.xlsx
-data/barcode_categories.json
+utils/barcode_categories.json
 output/*.xlsx
 .DS_Store

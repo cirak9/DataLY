@@ -7,7 +7,7 @@ from utils import barcode_categories as bc
 
 @pytest.fixture(autouse=True)
 def isolated_index(tmp_path, monkeypatch):
-    """كل اختبار يشتغل على ملف فهرس مؤقت منفصل، بلا أي أثر على data/barcode_categories.json الحقيقي."""
+    """كل اختبار يشتغل على ملف فهرس مؤقت منفصل، بلا أي أثر على utils/barcode_categories.json الحقيقي."""
     monkeypatch.setattr(bc, "_INDEX_PATH", str(tmp_path / "barcode_categories.json"))
     bc._cache = None
     yield
