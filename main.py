@@ -11,7 +11,7 @@ from pipelines.method_1_pipeline import run_method_1
 from pipelines.method_2_pipeline import run_method_2
 from fusion.reconciliation import reconcile, MasterDataError
 from fusion.merge import merge_invoice_and_session
-from fusion.inventory_manager import InventoryManager
+from fusion.inventory_manager import InventoryManager, InventoryLoadError
 from adapters.alsahl_adapter import export_to_alsahl
 from utils.logger import get_logger
 
@@ -78,7 +78,7 @@ def process_merge(store_id: str):
         log.info(f"✅ اكتمل! ارفع {os.path.basename(output_path)} في شاشة 'فاتورة مشتريات' بمنظومة السهل")
         log.info("=" * 80)
 
-    except (FileNotFoundError, MasterDataError) as e:
+    except (FileNotFoundError, MasterDataError, InventoryLoadError) as e:
         log.error(str(e))
         return
 

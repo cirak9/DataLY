@@ -6,6 +6,14 @@ from utils.logger import get_logger
 log = get_logger()
 
 
+class InventoryLoadError(Exception):
+    """يُرفع لو old_inventory.xlsx موجود فعلاً لكن فشلت قراءته (مقفول ببرنامج آخر، تالف...).
+    مقصود عدم ابتلاعه بصمت: update_inventory() يتعامل مع "مخزون فاضٍ" على إنه "أول مخزون
+    للمتجر" ويستبدل كل شي بالفاتورة الجديدة — فخطأ قراءة حقيقي، لو ابتلع بصمت، يمسح كل
+    تاريخ المخزون الفعلي بدون أي تحذير واضح للمستخدم (حصل فعليًا — راجع الكوميت)."""
+    pass
+
+
 class InventoryManager:
     """
     إدارة جرد المخزون التراكمي للمتجر
@@ -32,8 +40,13 @@ class InventoryManager:
             log.info(f"تم تحميل المخزون السابق: {len(df)} صنف")
             return df
         except Exception as e:
-            log.error(f"خطأ في تحميل المخزون: {e}")
-            return pd.DataFrame(columns=['barcode', 'name', 'expiration'])
+            # فشل قراءة ملف موجود فعلاً — نوقف بوضوح بدل الاستمرار بمخزون فاضٍ (يُفهم لاحقاً
+            # كـ"أول مخزون للمتجر" ويمسح كل التاريخ الحقيقي بصمت عند update_inventory()).
+            raise InventoryLoadError(
+                f"فشلت قراءة {self.inventory_file} رغم وجوده — لن نكمل بافتراض مخزون فاضٍ "
+                f"(قد يمسح كل تاريخ المخزون الحقيقي لهذا المتجر). تأكد إن الملف مو مفتوح ببرنامج "
+                f"آخر (إكسل مثلاً) وحاول من جديد. الخطأ الأصلي: {e}"
+            ) from e
 
     def update_inventory(self, old_inventory: pd.DataFrame, processed_invoice: pd.DataFrame) -> pd.DataFrame:
         """
