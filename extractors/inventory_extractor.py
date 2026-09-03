@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from collections import Counter
 from typing import Tuple
 from utils.logger import get_logger
 from utils import barcode_categories
@@ -173,18 +174,36 @@ def _learn_categories_if_present(df: pd.DataFrame, barcode_col: str, name_col: s
     if not sub_col:
         return
 
+    def _clean(v) -> str:
+        s = str(v).strip()
+        return "" if not s or s.lower() in ("nan", "none") else s
+
+    rows = [
+        (row.get(barcode_col, ""), _clean(row.get(sub_col, "")),
+         _clean(row.get(name_col, "")) if name_col else "")
+        for _, row in df.iterrows()
+    ]
+    rows = [r for r in rows if r[1]]  # استبعاد صفوف بلا تصنيف فرعي
+
+    # رئيسي كل فرعي جديد كلياً بهذا الملف = تصويت أغلبية على تخمين كل أصنافه من اسمها
+    # (بدل الاعتماد على أول صنف بس بالملف) — يمنع تخمين فردي غلط (تشابه لفظي عرضي، زي
+    # "كورن" مقابل "كلور" بتخمين الكلمات المفتاحية) من تلويث تصنيف فرعي كامل مشترك بين
+    # عشرات الأصناف؛ ويضمن رئيسياً واحداً متّسقاً لكل الأصناف بنفس الفرعي بهذا الملف.
+    unresolved_subs = {
+        sub for _, sub, _ in rows
+        if sub not in _KNOWN_SUB_TO_MAIN and barcode_categories.main_for_sub(sub) is None
+    }
+    batch_main = {}
+    for sub in unresolved_subs:
+        guesses = [get_category(name)[0] for _, s, name in rows if s == sub]
+        batch_main[sub] = Counter(guesses).most_common(1)[0][0]
+
     records = []
-    for _, row in df.iterrows():
-        sub_val = str(row.get(sub_col, "")).strip()
-        if not sub_val or sub_val.lower() in ("nan", "none"):
-            continue
-
-        main_val = _KNOWN_SUB_TO_MAIN.get(sub_val) or barcode_categories.main_for_sub(sub_val)
-        name_val = str(row.get(name_col, "")).strip() if name_col else ""
-        if not main_val:
-            main_val, _ = get_category(name_val)
-
-        records.append((row.get(barcode_col, ""), main_val, sub_val, name_val, store_id))
+    for barcode, sub_val, name_val in rows:
+        main_val = (_KNOWN_SUB_TO_MAIN.get(sub_val)
+                    or barcode_categories.main_for_sub(sub_val)
+                    or batch_main.get(sub_val))
+        records.append((barcode, main_val, sub_val, name_val, store_id))
 
     learned = barcode_categories.learn_many(records)
     if learned:
