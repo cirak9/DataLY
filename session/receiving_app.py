@@ -7,8 +7,27 @@ import io
 import pandas as pd
 import streamlit as st
 
-DATA_DIR         = os.path.join(os.path.dirname(__file__), "..", "data")
-SESSION_TEMPLATE = os.path.join(DATA_DIR, "session_template.xlsx")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+
+
+def list_pending_sessions() -> list[str]:
+    """
+    يرجّع أسماء المتاجر (أسماء المجلدات داخل data/) اللي فيها session_template.xlsx
+    بانتظار التعبئة. main.py --store <id> يكتب الملف دايماً داخل data/<id>/ (--store
+    إلزامي بالأداة)، فهذا يطابق نفس المكان — بدل مسار جذر ثابت كان لا يلاقي شي أبداً.
+    """
+    if not os.path.isdir(DATA_DIR):
+        return []
+    stores = []
+    for name in sorted(os.listdir(DATA_DIR)):
+        store_dir = os.path.join(DATA_DIR, name)
+        if os.path.isdir(store_dir) and os.path.exists(os.path.join(store_dir, "session_template.xlsx")):
+            stores.append(name)
+    return stores
+
+
+def session_template_path(store_id: str) -> str:
+    return os.path.join(DATA_DIR, store_id, "session_template.xlsx")
 
 st.set_page_config(
     page_title="Dataly — استلام البضاعة",
@@ -39,8 +58,8 @@ st.markdown("""
 
 
 @st.cache_data
-def load_template() -> pd.DataFrame:
-    return pd.read_excel(SESSION_TEMPLATE, dtype={"item_id": int, "الباركود": str})
+def load_template(path: str) -> pd.DataFrame:
+    return pd.read_excel(path, dtype={"item_id": int, "الباركود": str})
 
 
 def detect_method(df: pd.DataFrame) -> int:
@@ -57,10 +76,14 @@ def detect_method(df: pd.DataFrame) -> int:
     return 1
 
 
-def init_state(df: pd.DataFrame, method: int):
-    if "session_data" not in st.session_state:
+def init_state(df: pd.DataFrame, method: int, store_id: str):
+    # لو المستخدم بدّل المتجر من القائمة، نبدأ جلسة تعبئة جديدة له بدل ما نكمل ببيانات
+    # المتجر السابق (كل متجر له session_template.xlsx وitem_id خاصين فيه).
+    if st.session_state.get("loaded_store") != store_id:
         st.session_state.session_data = {}
         st.session_state.method = method
+        st.session_state.loaded_store = store_id
+        st.session_state.current_index = 0
         for _, row in df.iterrows():
             st.session_state.session_data[int(row["item_id"])] = {
                 "item_id":      int(row["item_id"]),
@@ -118,13 +141,19 @@ def build_excel_bytes() -> bytes:
 
 
 def main():
-    if not os.path.exists(SESSION_TEMPLATE):
-        st.error("❌ لم يتم العثور على ملف الجلسة. شغّل main.py أولاً.")
+    stores = list_pending_sessions()
+    if not stores:
+        st.error("❌ لم يتم العثور على أي ملف جلسة بمجلد data/<اسم_المتجر>/. شغّل main.py أولاً.")
         return
 
-    df = load_template()
+    if len(stores) == 1:
+        store_id = stores[0]
+    else:
+        store_id = st.selectbox("🏬 اختر المتجر", stores, key="store_selector")
+
+    df = load_template(session_template_path(store_id))
     method = detect_method(df)
-    init_state(df, method)
+    init_state(df, method, store_id)
 
     items      = list(st.session_state.session_data.values())
     total      = len(items)
@@ -253,6 +282,7 @@ def main():
             '<div class="done-msg">🎉 اكتملت جميع الأصناف — الملف جاهز!</div>',
             unsafe_allow_html=True,
         )
+        st.info(f"📁 بعد التحميل، انقل الملف يدوياً لمجلد: data/{store_id}/session_output.xlsx")
 
         excel_bytes = build_excel_bytes()
 
