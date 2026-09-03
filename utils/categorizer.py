@@ -121,7 +121,11 @@ def get_category(item_name: str, category_hint: str = "", sub_hint: str = "", ba
                 continue
 
             score = fuzz.partial_ratio(kw_lower, text_word)
-            if score > best_score and score >= 85:
+            # كلمات قصيرة (٤-٥ أحرف) عندها احتمال تشابه عرضي أعلى بكثير (تركيبات محدودة) —
+            # اكتُشف فعلياً: "كورن" ≈ "كلور" (منظفات) بـ85.7% رغم أنهما كلمتان مختلفتان
+            # كلياً بالمعنى. نطلب تشابهاً أعلى كل ما الكلمة أقصر، بدل حد ثابت 85% للكل.
+            min_score = 92 if len(kw_lower) <= 4 else (88 if len(kw_lower) <= 6 else 85)
+            if score > best_score and score >= min_score:
                 best_score = score
                 best_match = (main, sub)
 
