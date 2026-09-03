@@ -20,11 +20,16 @@ INVENTORY_POSSIBLE_COLUMNS = {
     ],
     'name': [
         'اسم الصنف', 'الاسم', 'اسم المنتج', 'الصنف', 'الوصف', 'وصف الصنف',
+        # 'descr' أُضيف بعد ملف حقيقي (نظام نقاط بيع عربي شائع): عمود الوصف الكامل الحقيقي
+        # اسمه "descR" مختصر، بينما عمود اسمه "item_name" فعلياً تصنيف/تجميع مو اسم الصنف —
+        # لازم 'descr' يُطابَق أولاً (تام) قبل ما 'name' يمسك "item_name" غلط بالتقريبي.
+        'descr',
         'name', 'product_name', 'product name', 'item name', 'description',
     ],
     'expiration': [
         'صلاحية', 'الصلاحية', 'انتهاء', 'تاريخ الانتهاء', 'تاريخ الصلاحية',
         'expiration', 'expiry', 'exp date', 'exp. date',
+        'date_xp',  # نفس نظام نقاط البيع فوق — عمود تاريخ الصلاحية اسمه "date_xp"
     ],
 }
 
@@ -93,9 +98,15 @@ def detect_subcategory_column(df: pd.DataFrame, exclude: set) -> str:
     """
     تحديد عمود التصنيف الفرعي إن وُجد — اختياري بالكامل، بدون رفع خطأ لو غير موجود
     (بخلاف detect_inventory_columns). لا يوجد عمود "رئيسي" يُبحث عنه إطلاقاً (راجع
-    CATEGORY_POSSIBLE_COLUMNS). أولاً بعنوان صريح (تام ثم تقريبي)، وإلا أي عمود إضافي
-    غالبية قيمه (غير الفاضية) تصنيفات فرعية معروفة مسبقاً — من بذرة categories.json أو
-    من فهرس barcode_categories المتراكم من ملفات سابقة (أي متجر).
+    CATEGORY_POSSIBLE_COLUMNS).
+
+    أولاً بعنوان صريح (تام ثم تقريبي). وإلا: أي عمود إضافي نصي (مو رقمي ولا تاريخ) وقيمه
+    متكررة بكثافة (عدد القيم الفريدة أقل بكثير من عدد الصفوف — إشارة تجميع/تصنيف نموذجية،
+    زي "item_name" بملفات أنظمة نقاط بيع حقيقية: 31 قيمة فريدة بس عبر مئات الصفوف، بعنوان
+    عمود مضلِّل يوحي بأنه اسم الصنف بينما هو فعلياً تصنيف). ما نشترط تطابق مسبق مع تصنيفات
+    معروفة (بذرة categories.json أو الفهرس المتراكم) — هذا يفشل بأول ملف حقيقي قبل ما
+    يتراكم أي شي بالفهرس؛ التكرار بالقيم نفسها كافٍ كإشارة. لو فيه أكثر من مرشح، نفضّل
+    الأقل تكراراً (أوضح كتصنيف)، وبعدين الأعلى تطابقاً مع المعروف مسبقاً كمرجّح إضافي.
 
     Returns:
         اسم العمود، أو None لو ما انلقى شي
@@ -114,15 +125,34 @@ def detect_subcategory_column(df: pd.DataFrame, exclude: set) -> str:
             return False
         return s in _KNOWN_SUB_TO_MAIN or barcode_categories.main_for_sub(s) is not None
 
+    candidates = []
     for col in columns:
-        non_empty = df[col].apply(lambda v: str(v).strip() not in ("", "nan", "none"))
-        if non_empty.sum() == 0:
-            continue
-        known_ratio = df[col].apply(_is_known).sum() / non_empty.sum()
-        if known_ratio >= 0.5:
-            return col
+        s = df[col]
+        if pd.api.types.is_numeric_dtype(s) or pd.api.types.is_datetime64_any_dtype(s):
+            continue  # التصنيف نص مقروء دايماً، مو رقم/تاريخ
 
-    return None
+        non_empty_mask = s.apply(lambda v: str(v).strip() not in ("", "nan", "none"))
+        n = int(non_empty_mask.sum())
+        if n == 0:
+            continue
+
+        unique_count = s[non_empty_mask].astype(str).str.strip().nunique()
+        cardinality_ratio = unique_count / n
+        known_ratio = s.apply(_is_known).sum() / n
+
+        # يتأهل العمود بأي من إشارتين: تكرار واضح بالقيم (تصنيف/تجميع نموذجي حتى لو
+        # فرعي جديد كلياً غير معروف بعد)، أو غالبية قيمه معروفة مسبقاً حتى لو الملف صغير
+        # (صف واحد أو صفين، ما يكفي لإظهار تكرار، لكن القيمة نفسها معروفة من ملف سابق).
+        repeats = unique_count >= 2 and cardinality_ratio <= 0.5
+        if not repeats and known_ratio < 0.5:
+            continue
+
+        candidates.append((cardinality_ratio, -known_ratio, col))
+
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[0][2]
 
 
 def _learn_categories_if_present(df: pd.DataFrame, barcode_col: str, name_col: str,
