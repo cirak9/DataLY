@@ -62,6 +62,15 @@ def load_template(path: str) -> pd.DataFrame:
     return pd.read_excel(path, dtype={"item_id": int, "الباركود": str})
 
 
+def _clean_cell(v) -> str:
+    """قيمة خلية إكسل فاضية تُقرأ NaN عبر pandas — str(NaN) == 'nan' وهذا truthy بايثون،
+    فكان يخلي detect_method يفهم أي خلية فاضية كأنها "معبّأة"! لازم نتحقق من NaN أولاً."""
+    if pd.isna(v):
+        return ""
+    s = str(v).strip()
+    return "" if s.lower() in ("nan", "none") else s
+
+
 def detect_method(df: pd.DataFrame) -> int:
     """الكشف التلقائي عن الطريقة بناءً على البيانات في الملف"""
     # إذا كان الباركود والصلاحية معبأين → الطريقة الثانية
@@ -69,8 +78,8 @@ def detect_method(df: pd.DataFrame) -> int:
     if df.empty:
         return 1
     first_row = df.iloc[0]
-    barcode = str(first_row.get("الباركود", "")).strip()
-    expiry = str(first_row.get("الصلاحية", "")).strip()
+    barcode = _clean_cell(first_row.get("الباركود", ""))
+    expiry = _clean_cell(first_row.get("الصلاحية", ""))
     if barcode and expiry:
         return 2
     return 1
