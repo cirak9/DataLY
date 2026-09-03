@@ -1,7 +1,9 @@
-# fusion/reconciliation.py — v6.1
+# fusion/reconciliation.py — v6.2
 # خطوة توحيد الأصناف: تُستدعى بعد اكتمال جلسة التاجر، قبل merge_invoice_and_session().
-# تقارن اسم الصنف بـ invoice_data.xlsx مقابل قاعدة master_items.xlsx (عبر الباركود من
-# session_output.xlsx)، فتوحّد نفس الصنف اللي كل مورد يكتبه بصيغة مختلفة.
+# تقارن اسم الصنف بـ invoice_data.xlsx مقابل مصدرين (عبر الباركود من session_output.xlsx،
+# المتوفر فقط الآن — بعد التعبئة): قاعدة master_items.xlsx الخارجية، ومخزون المتجر السابق
+# old_inventory.xlsx (عبر load_old_inventory_as_master) — فتوحّد نفس الصنف اللي كل مورد أو
+# فاتورة سابقة يكتبه بصيغة مختلفة، حتى بدون master_items.xlsx أصلاً.
 # master_items.xlsx للمقارنة فقط — يُقرأ ولا يُعدَّل ولا يُحفظ أبدًا (قرار متعمَّد من صاحب
 # المشروع: كل تشغيلة مستقلة، وقاعدة الأصناف تُجلَب حديثة من الخارج كل مرة).
 import os
@@ -180,6 +182,47 @@ def load_master(path: str = MASTER_ITEMS_PATH) -> pd.DataFrame:
         df[col] = df[col].apply(_clean_str)
 
     return df[MASTER_COLUMNS]
+
+
+def load_old_inventory_as_master(store_id: str) -> pd.DataFrame:
+    """
+    يحوّل old_inventory.xlsx (مخزون المتجر التراكمي: barcode/name/expiration) لنفس شكل
+    master_df — يخدم بنفس آلية reconcile_dataframes()/resolve_matches_interactively()
+    الموجودة أصلاً لـmaster_items.xlsx، بدل بناء آلية مطابقة موازية.
+
+    مهم: بالطريقة الأولى (بدون مخزون مورد)، الباركود ما يكون معروفاً إلا بعد ما التاجر
+    يعبّيه بواجهة الاستلام (session_output.xlsx) — فمقارنته بالمخزون السابق لازم تصير هنا
+    (وقت --merge، بعد التعبئة)، مو بـfusion/inventory_matcher.py (يشتغل قبل التعبئة، على
+    باركود الفاتورة الخام لو موجود أصلاً — نادراً بالطريقة الأولى).
+
+    التصنيف يُشتق من فهرس barcode_categories المركزي لو الباركود معروف له، وإلا فاضي —
+    resolve_matches_interactively() يتجاهل اقتراح تصنيف فاضٍ بأمان أصلاً (ما يستبدل شي).
+    """
+    if not store_id:
+        return pd.DataFrame(columns=MASTER_COLUMNS)
+
+    from fusion.inventory_manager import InventoryManager
+    old_inv = InventoryManager(store_id).load_old_inventory()
+    if old_inv.empty:
+        return pd.DataFrame(columns=MASTER_COLUMNS)
+
+    rows = []
+    for _, r in old_inv.iterrows():
+        barcode = _clean_str(r.get("barcode", ""))
+        if not barcode:
+            continue
+        indexed = barcode_categories.lookup(barcode)
+        main_cat, sub_cat = indexed if indexed else ("", "")
+        rows.append({
+            "الباركود": barcode,
+            "اسم الصنف": _clean_str(r.get("name", "")),
+            "التصنيف الرئيسي": main_cat,
+            "التصنيف الفرعي": sub_cat,
+        })
+
+    df = pd.DataFrame(rows, columns=MASTER_COLUMNS)
+    # نفس الباركود بأكثر من صف (صلاحيات مختلفة لنفس الصنف) — نبقي أول ظهور بس، الاسم واحد أصلاً
+    return df.drop_duplicates(subset=["الباركود"], keep="first")
 
 
 def reconcile_dataframes(
@@ -392,11 +435,12 @@ def resolve_matches_interactively(
 
 def reconcile(store_id: str = None) -> int:
     """غلاف الملفات: يقرأ invoice_data/session_output من data/<store_id>/ (نفس المجلد
-    اللي session/session_generator.py يكتب فيه)، ويقرأ master_items.xlsx من جذر data/
-    للمقارنة فقط (لا يُعدَّل ولا يُحفظ أبدًا — كل تشغيلة تجيب قاعدة حديثة من الخارج، وهذا
-    الملف مقصود يبقى بمسار واحد بلا معامل متجر — راجع ARCHITECTURE.md)، يعرض أي تطابق
-    مُقترَح بالطرفية لموافقة فورية (كل تطابق، مو بس المتعارض)، يكتب invoice_data/session_output
-    المحدّثين بس، ويرجّع عدد التطابقات اللي عُرضت للموافقة."""
+    اللي session/session_generator.py يكتب فيه)، ويقرأ مصدرين للمقارنة (لا يُعدَّلان ولا
+    يُحفظان أبدًا): master_items.xlsx من جذر data/ (كل تشغيلة تجيب قاعدة حديثة من الخارج،
+    وهذا الملف مقصود يبقى بمسار واحد بلا معامل متجر — راجع ARCHITECTURE.md)، وold_inventory.xlsx
+    لنفس المتجر (مخزونه التراكمي من فواتير سابقة — عبر load_old_inventory_as_master).
+    يعرض أي تطابق مُقترَح بالطرفية لموافقة فورية (كل تطابق، مو بس المتعارض)، يكتب
+    invoice_data/session_output المحدّثين بس، ويرجّع عدد التطابقات اللي عُرضت للموافقة."""
     store_dir = os.path.join(DATA_DIR, store_id) if store_id else DATA_DIR
     invoice_path = os.path.join(store_dir, "invoice_data.xlsx")
     session_path = os.path.join(store_dir, "session_output.xlsx")
@@ -418,7 +462,18 @@ def reconcile(store_id: str = None) -> int:
     barcode_categories.learn_from_dataframe(
         master_df, "الباركود", "التصنيف الرئيسي", "التصنيف الفرعي", "اسم الصنف", store_id or ""
     )
-    df_inv, df_ses, pending_matches = reconcile_dataframes(df_inv, df_ses, master_df)
+
+    # مصدر مطابقة ثانٍ: مخزون المتجر السابق نفسه (الباركود صار معروفاً الآن، بعد تعبئة
+    # التاجر بـsession_output.xlsx). master_items.xlsx (لو موجود) يبقى الأولوية عند تعارض
+    # نفس الباركود — مصدر خارجي مُعتمَد يدوياً، بخلاف old_inventory اللي يتراكم تلقائياً.
+    inventory_master_df = load_old_inventory_as_master(store_id)
+    if not inventory_master_df.empty:
+        combined_master = pd.concat([master_df, inventory_master_df], ignore_index=True)
+        combined_master = combined_master.drop_duplicates(subset=["الباركود"], keep="first")
+    else:
+        combined_master = master_df
+
+    df_inv, df_ses, pending_matches = reconcile_dataframes(df_inv, df_ses, combined_master)
     df_inv, df_ses, decisions = resolve_matches_interactively(df_inv, df_ses, pending_matches)
 
     df_inv.to_excel(invoice_path, index=False)
