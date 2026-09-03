@@ -31,10 +31,12 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "", store_id:
         main_cat, sub_cat = _get_category_util(item_name, cat_main, cat_sub, barcode)
 
         total_units = float(row.get("total_units", 0) or 0)
-        per_box_int = int(row.get("per_box_int", 1) or 1)
 
-        # "العبوة" رقم عدد القطع بالعبوة (1 لو تُباع مفردة)، مو نص وصفي زي "شوال"/"عبوة"/"كيس"
-        unit = per_box_int
+        # "العبوة" رقم عدد القطع بالعبوة الحقيقي (من fusion/merge.py) — لو ما انلقى بالفاتورة
+        # إطلاقاً (per_box_int == None)، نترك الخانة فاضية بدل "1" ملفّق يوهم إنه قيمة مؤكدة؛
+        # فاضية = يحتاج تأكيد يدوي، بخلاف 1 اللي تبان كأنها بيانات حقيقية مو نقص معلومة.
+        per_box_raw = row.get("per_box_int")
+        unit = int(per_box_raw) if per_box_raw and not pd.isna(per_box_raw) else ""
 
         unit_cost = float(row.get("unit_cost", 0) or 0)
         sale_price = float(row.get("سعر البيع", 0) or 0)
@@ -87,7 +89,14 @@ def export_to_alsahl(df_merged: pd.DataFrame, supplier_name: str = "", store_id:
             val = row[col]
             if col == "الكود":
                 ws.write_string(ri + 1, ci, str(val), bc_fmt)
-            elif col in ("التكلفة", "البيع", "العدد", "العبوة"):
+            elif col == "العبوة":
+                # فاضي = عدد القطع بالعبوة غير معروف فعلاً (راجع fusion/merge.py) — نتركها
+                # فاضية فعلاً بالإكسل (write_blank) بدل ما نكتب 0 أو 1 يوهمان إنهما قيمة مؤكدة.
+                if val == "" or (isinstance(val, float) and pd.isna(val)):
+                    ws.write_blank(ri + 1, ci, None, num_fmt)
+                else:
+                    ws.write_number(ri + 1, ci, float(val), num_fmt)
+            elif col in ("التكلفة", "البيع", "العدد"):
                 ws.write_number(ri + 1, ci, float(val) if str(val) not in ("", "nan") else 0, num_fmt)
             elif col == "الوصف":
                 ws.write(ri + 1, ci, val, txt)

@@ -9,11 +9,16 @@ log = get_logger()
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 
-def _extract_per_box_from_unit(unit: str) -> int:
-    match = re.search(r"\((\d+)", str(unit))
-    if match:
-        return int(match.group(1))
-    return 1
+# نفس منطق session/session_generator.py بالضبط (راجعه هناك للتفصيل) — يرجّع None لو
+# ما انلقى رقم عبوة حقيقي بالنص، بدل 1 ملفّق يوهم إنه قيمة مؤكدة.
+_PER_BOX_WITH_WORD = re.compile(r"(?:كرتون|صندوق|كرتونة|بالة|جوال|شيكارة)\D{0,4}(\d+)")
+_PER_BOX_PARENS = re.compile(r"\((\d+)")
+
+
+def _extract_per_box_from_unit(unit: str):
+    text = str(unit)
+    match = _PER_BOX_WITH_WORD.search(text) or _PER_BOX_PARENS.search(text)
+    return int(match.group(1)) if match else None
 
 
 def merge_invoice_and_session(store_id: str = None) -> pd.DataFrame:
@@ -58,13 +63,13 @@ def merge_invoice_and_session(store_id: str = None) -> pd.DataFrame:
         if pb > 1:
             return int(pb)
         unit = str(df[unit_col].iloc[row_idx]) if unit_col else ""
-        return _extract_per_box_from_unit(unit)
+        return _extract_per_box_from_unit(unit)  # ممكن يرجّع None — غير معروف فعلاً
 
     total_units_list, num_boxes_list, per_box_list = [], [], []
     for i in range(len(df)):
         qty = float(boxes.iloc[i])
         pb_int = get_per_box(i)
-        if pb_int > 1:
+        if pb_int is not None and pb_int > 1:
             total_u = qty
             n_boxes = round(qty / pb_int, 4)
         else:
@@ -72,7 +77,7 @@ def merge_invoice_and_session(store_id: str = None) -> pd.DataFrame:
             n_boxes = qty
         total_units_list.append(total_u)
         num_boxes_list.append(round(n_boxes, 2))
-        per_box_list.append(pb_int)
+        per_box_list.append(pb_int)  # None يبقى None — يوصل لalsahl_adapter كإشارة "غير معروف"
 
     df["total_units"] = total_units_list
     df["num_boxes"] = num_boxes_list

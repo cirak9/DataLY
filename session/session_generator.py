@@ -10,11 +10,18 @@ log = get_logger()
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 
-def _extract_per_box_from_unit(unit: str) -> int:
-    match = re.search(r"\((\d+)", str(unit))
-    if match:
-        return int(match.group(1))
-    return 1
+# عدد القطع بالعبوة يُستخرج من نص "الوحدة" — أولاً صيغة "كرتون 24" (كلمة عبوة + رقم،
+# بدون قوسين، الصيغة الأشيع بالفواتير الحقيقية)، وإلا الصيغة القديمة "(24)" بأي مكان
+# بالنص (توافق خلفي). لو ما انلقى أي رقم، نرجّع None — مو 1 ملفّق يوهم إنه قيمة حقيقية
+# مؤكدة؛ الاستدعاء هو اللي يقرر قيمة افتراضية بوضوح (راجع calc_per_box).
+_PER_BOX_WITH_WORD = re.compile(r"(?:كرتون|صندوق|كرتونة|بالة|جوال|شيكارة)\D{0,4}(\d+)")
+_PER_BOX_PARENS = re.compile(r"\((\d+)")
+
+
+def _extract_per_box_from_unit(unit: str):
+    text = str(unit)
+    match = _PER_BOX_WITH_WORD.search(text) or _PER_BOX_PARENS.search(text)
+    return int(match.group(1)) if match else None
 
 
 def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "", store_id: str = "", method: int = 1) -> tuple[str, str]:
@@ -90,7 +97,10 @@ def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "", stor
     # تنتج رقم صناديق مرجعي، والكسور مقبولة ومتعمّدة، بدون أي تعديل.
     def calc_box_count(row) -> float:
         qty = float(row.get("boxes", 0) or 0)
-        pb_int = int(row.get("per_box_calc", 1) or 1)
+        pb_raw = row.get("per_box_calc")
+        # per_box_calc ممكن يكون None (غير معروف — راجع _extract_per_box_from_unit)، فلازم
+        # نتحقق بـpd.isna() بدل الاعتماد على "or 1" (NaN صراحةً truthy ببايثون، تكسر int()).
+        pb_int = int(pb_raw) if pb_raw and not pd.isna(pb_raw) else 1
         if pb_int > 1 and qty > 0:
             return round(qty / pb_int, 4)
         return qty
@@ -129,9 +139,14 @@ def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "", stor
         ws.write(0, ci, col, hdr)
         ws.set_column(ci, ci, 18)
         for ri, val in enumerate(df_inv[col]):
-            fmt = num if isinstance(val, float) and col not in ("التصنيف الرئيسي", "التصنيف الفرعي") else (
-                alt if ri % 2 == 0 else cell)
-            ws.write(ri + 1, ci, val, fmt)
+            is_num = isinstance(val, float) and col not in ("التصنيف الرئيسي", "التصنيف الفرعي")
+            fmt = num if is_num else (alt if ri % 2 == 0 else cell)
+            if is_num and pd.isna(val):
+                # مثلاً "ب_الصندوق" لصنف بلا معلومة عبوة بالفاتورة — فاضي فعلاً، مو 0
+                # ملفّق (write_number يرفض NaN أصلاً ويطيح البرنامج لو ما تحققنا منه هنا).
+                ws.write_blank(ri + 1, ci, None, fmt)
+            else:
+                ws.write(ri + 1, ci, val, fmt)
     writer_inv.close()
 
     # بناء جلسة الاستلام حسب الطريقة

@@ -68,7 +68,46 @@ def detect_header_row(df_raw: pd.DataFrame) -> int:
     return 0
 
 
+# اسم المورد بالصياغة "تسمية: قيمة" (بنفس الخلية) أو "تسمية بخلية / قيمة بالخلية اللي
+# بعدها بنفس الصف" — نبحث عنه صراحة بدل افتراض إن أول خلية بالملف (A1) هي اسم المورد
+# دايماً، لأنها غالباً عنوان/ترحيب عام ("بيانات الفاتورة"، "فاتورة مبيعات"...) مو اسم فعلي.
+# طبقتين: تسمية دقيقة أولاً ("اسم المورد")، وإلا تسمية عامة ("المورد") مع استبعاد خلايا
+# واضح إنها حقل ثاني (عنوان/هاتف/رقم ضريبي) بدل اسم المورد نفسه.
+_SUPPLIER_LABEL_STRICT = ["اسم المورد", "supplier name"]
+_SUPPLIER_LABEL_LOOSE = ["المورد", "vendor", "supplier"]
+_SUPPLIER_LABEL_EXCLUDE = ["عنوان", "هاتف", "جوال", "رقم", "ضريب", "address", "phone", "tax"]
+
+
+def _supplier_value_from_row(cells: list, label_idx: int) -> str:
+    cell = cells[label_idx]
+    if ":" in cell:
+        _, _, after = cell.partition(":")
+        after = after.strip()
+        if after and after.lower() != "nan":
+            return after
+    for nxt in cells[label_idx + 1:]:
+        if nxt and nxt.lower() != "nan":
+            return nxt
+    return ""
+
+
 def extract_supplier_name(df_raw: pd.DataFrame) -> str:
+    rows = [[str(c).strip() for c in row.values] for _, row in df_raw.iterrows()]
+
+    for hints in (_SUPPLIER_LABEL_STRICT, _SUPPLIER_LABEL_LOOSE):
+        for cells in rows:
+            for j, cell in enumerate(cells):
+                if not cell or cell.lower() == "nan":
+                    continue
+                cell_lower = cell.lower()
+                if hints is _SUPPLIER_LABEL_LOOSE and any(ex in cell_lower for ex in _SUPPLIER_LABEL_EXCLUDE):
+                    continue
+                if any(h in cell_lower for h in hints):
+                    value = _supplier_value_from_row(cells, j)
+                    if value:
+                        return value
+
+    # fallback: أول خلية غير فاضية (لملفات قديمة بلا أي تسمية صريحة للمورد)
     try:
         val = str(df_raw.iloc[0, 0]).strip()
         if val and val.lower() != "nan":
