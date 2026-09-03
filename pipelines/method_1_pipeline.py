@@ -46,7 +46,7 @@ def run_method_1(store_id: str, inventory_path: str, invoice_path: str):
     try:
         # الخطوة 1: قراءة المخزون القديم
         log.info("\n[1/7] قراءة مخزون المتجر القديم...")
-        old_inventory = extract_old_inventory(inventory_path)
+        old_inventory = extract_old_inventory(inventory_path, store_id=store_id)
 
         # الخطوة 2: قراءة الفاتورة
         log.info("[2/7] قراءة الفاتورة...")

@@ -54,6 +54,19 @@ def lookup(barcode: str):
     return entry["main"], entry["sub"]
 
 
+def main_for_sub(sub: str):
+    """يرجّع التصنيف الرئيسي المعتمد لتصنيف فرعي معيّن لو سبق وتعلّمه الفهرس (من أي متجر
+    أو ملف)، وإلا None. يخدم حالة ملفات الجرد اللي فيها عمود تصنيف فرعي بس بدون رئيسي —
+    لو الفرعي معروف مسبقًا بالفهرس، رئيسيه المعتمد يُعاد استخدامه بدل تخمينه من جديد."""
+    sub = str(sub).strip()
+    if not sub or sub.lower() in _IGNORED_SUB:
+        return None
+    for entry in _load().values():
+        if entry["sub"] == sub:
+            return entry["main"]
+    return None
+
+
 def _upsert(barcode, main, sub, name, store_id) -> bool:
     """تسجيل/تحديث صنف واحد بالذاكرة بس (بدون كتابة قرص) — الأحدث يربح عند التعارض.
     يرجّع True لو فعليًا كان فيه باركود وتصنيف صالحين يستاهلون التسجيل."""
@@ -94,4 +107,16 @@ def learn_from_dataframe(df, barcode_col: str, main_col: str, sub_col: str,
     if learned:
         _save()
         log.info(f"[فهرس التصنيف] اتعلّم/تحدّث {learned} صنف بالفهرس المركزي (من {store_id or 'مصدر بدون متجر محدد'})")
+    return learned
+
+
+def learn_many(records) -> int:
+    """نفس learn() لكن لعدة أصناف دفعة وحدة — حفظ قرص مرة وحدة بس بنهاية الدفعة (بدل
+    حفظ مستقل لكل صنف زي learn()). كل عنصر بـrecords: (barcode, main, sub, name, store_id)."""
+    learned = 0
+    for barcode, main, sub, name, store_id in records:
+        if _upsert(barcode, main, sub, name, store_id):
+            learned += 1
+    if learned:
+        _save()
     return learned

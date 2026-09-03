@@ -49,7 +49,7 @@ def run_method_2(store_id: str, inventory_path: str, invoice_path: str, supplier
     try:
         # الخطوة 1: قراءة المخزون القديم
         log.info("\n[1/9] قراءة مخزون المتجر القديم...")
-        old_inventory = extract_old_inventory(inventory_path)
+        old_inventory = extract_old_inventory(inventory_path, store_id=store_id)
 
         # الخطوة 2: قراءة الفاتورة
         log.info("[2/9] قراءة الفاتورة...")
@@ -66,7 +66,7 @@ def run_method_2(store_id: str, inventory_path: str, invoice_path: str, supplier
 
         # الخطوة 4: قراءة مخزون المورد
         log.info("[4/9] قراءة مخزون المورد...")
-        supplier_inventory = extract_supplier_inventory(supplier_path)
+        supplier_inventory = extract_supplier_inventory(supplier_path, store_id=store_id)
         log.info(f"   {len(supplier_inventory)} صنف في مخزون المورد")
 
         # الخطوة 5: إثراء الفاتورة من مخزون المورد
