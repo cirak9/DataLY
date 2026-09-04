@@ -10,23 +10,30 @@ import streamlit as st
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 
+ROOT_STORE_LABEL = "(data/ مباشرة — بدون مجلد متجر)"
+
+
 def list_pending_sessions() -> list[str]:
     """
-    يرجّع أسماء المتاجر (أسماء المجلدات داخل data/) اللي فيها session_template.xlsx
-    بانتظار التعبئة. main.py --store <id> يكتب الملف دايماً داخل data/<id>/ (--store
-    إلزامي بالأداة)، فهذا يطابق نفس المكان — بدل مسار جذر ثابت كان لا يلاقي شي أبداً.
+    يرجّع أسماء المتاجر (أسماء المجلدات داخل data/) اللي فيها session_template.xlsx بانتظار
+    التعبئة، بالإضافة لـ"" (يمثّل data/session_template.xlsx مباشرة بدون مجلد متجر — --store
+    اختياري بـmain.py، لعمل يدوي بمتجر واحد بالمرة قبل ما يستاهل هيكلية متعددة المتاجر).
     """
-    if not os.path.isdir(DATA_DIR):
-        return []
-    stores = []
-    for name in sorted(os.listdir(DATA_DIR)):
-        store_dir = os.path.join(DATA_DIR, name)
-        if os.path.isdir(store_dir) and os.path.exists(os.path.join(store_dir, "session_template.xlsx")):
-            stores.append(name)
-    return stores
+    result = []
+    if os.path.exists(os.path.join(DATA_DIR, "session_template.xlsx")):
+        result.append("")
+
+    if os.path.isdir(DATA_DIR):
+        for name in sorted(os.listdir(DATA_DIR)):
+            store_dir = os.path.join(DATA_DIR, name)
+            if os.path.isdir(store_dir) and os.path.exists(os.path.join(store_dir, "session_template.xlsx")):
+                result.append(name)
+    return result
 
 
 def session_template_path(store_id: str) -> str:
+    if not store_id:
+        return os.path.join(DATA_DIR, "session_template.xlsx")
     return os.path.join(DATA_DIR, store_id, "session_template.xlsx")
 
 st.set_page_config(
@@ -152,13 +159,16 @@ def build_excel_bytes() -> bytes:
 def main():
     stores = list_pending_sessions()
     if not stores:
-        st.error("❌ لم يتم العثور على أي ملف جلسة بمجلد data/<اسم_المتجر>/. شغّل main.py أولاً.")
+        st.error("❌ لم يتم العثور على أي ملف جلسة (لا بـdata/ مباشرة ولا بـdata/<اسم_المتجر>/). شغّل main.py أولاً.")
         return
 
     if len(stores) == 1:
         store_id = stores[0]
     else:
-        store_id = st.selectbox("🏬 اختر المتجر", stores, key="store_selector")
+        store_id = st.selectbox(
+            "🏬 اختر المتجر", stores, key="store_selector",
+            format_func=lambda s: s if s else ROOT_STORE_LABEL,
+        )
 
     df = load_template(session_template_path(store_id))
     method = detect_method(df)
@@ -291,7 +301,8 @@ def main():
             '<div class="done-msg">🎉 اكتملت جميع الأصناف — الملف جاهز!</div>',
             unsafe_allow_html=True,
         )
-        st.info(f"📁 بعد التحميل، انقل الملف يدوياً لمجلد: data/{store_id}/session_output.xlsx")
+        dest = f"data/{store_id}/session_output.xlsx" if store_id else "data/session_output.xlsx"
+        st.info(f"📁 بعد التحميل، انقل الملف يدوياً لمجلد: {dest}")
 
         excel_bytes = build_excel_bytes()
 

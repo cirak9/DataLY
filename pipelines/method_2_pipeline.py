@@ -43,7 +43,7 @@ def run_method_2(store_id: str, inventory_path: str, invoice_path: str, supplier
 
     log.info("")
     log.info("=" * 80)
-    log.info(f"🟢 الطريقة الثانية — المتجر: {store_id}")
+    log.info(f"🟢 الطريقة الثانية — المتجر: {store_id or '(data/ مباشرة)'}")
     log.info("=" * 80)
 
     try:
@@ -113,10 +113,12 @@ def run_method_2(store_id: str, inventory_path: str, invoice_path: str, supplier
         log.info(f"   ✓ تم توليد جلسة الاستلام المبسطة")
         log.info("")
         log.info(f"📝 الخطوات التالية:")
+        dest_dir = f"data/{store_id}/" if store_id else "data/"
+        merge_cmd = f"python main.py --merge --store {store_id}" if store_id else "python main.py --merge"
         log.info(f"   1) أرسل {os.path.basename(session_path)} للتاجر")
         log.info(f"   2) streamlit run session/receiving_app.py")
-        log.info(f"   3) انقل session_output.xlsx لمجلد data/{store_id}/ بعد اكتمال التاجر")
-        log.info(f"   4) python main.py --merge --store {store_id}")
+        log.info(f"   3) انقل session_output.xlsx لمجلد {dest_dir} بعد اكتمال التاجر")
+        log.info(f"   4) {merge_cmd}")
         log.info("=" * 80)
 
     except InvoiceValidationError as e:

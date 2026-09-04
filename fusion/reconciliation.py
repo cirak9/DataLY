@@ -197,10 +197,10 @@ def load_old_inventory_as_master(store_id: str) -> pd.DataFrame:
 
     التصنيف يُشتق من فهرس barcode_categories المركزي لو الباركود معروف له، وإلا فاضي —
     resolve_matches_interactively() يتجاهل اقتراح تصنيف فاضٍ بأمان أصلاً (ما يستبدل شي).
-    """
-    if not store_id:
-        return pd.DataFrame(columns=MASTER_COLUMNS)
 
+    store_id فاضٍ = يقرأ data/old_inventory.xlsx مباشرة (بدون مجلد متجر) — InventoryManager
+    يدعم هذا أصلاً.
+    """
     from fusion.inventory_manager import InventoryManager
     old_inv = InventoryManager(store_id).load_old_inventory()
     if old_inv.empty:

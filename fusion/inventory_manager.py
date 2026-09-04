@@ -19,12 +19,14 @@ class InventoryManager:
     إدارة جرد المخزون التراكمي للمتجر
     """
 
-    def __init__(self, store_id: str):
+    def __init__(self, store_id: str = ""):
+        # store_id فاضٍ = العمل مباشرة بجذر data/ بدون مجلد متجر — لدعم تشغيل يدوي بسيط
+        # (متجر واحد بالمرة، بدون --store) قبل ما يستاهل الاستثمار بهيكلية متعددة المتاجر.
         self.store_id = store_id
-        self.store_path = f"data/{store_id}"
-        self.inventory_file = f"{self.store_path}/old_inventory.xlsx"
+        self.store_path = os.path.join("data", store_id) if store_id else "data"
+        self.inventory_file = os.path.join(self.store_path, "old_inventory.xlsx")
 
-        # التأكد من وجود مجلد المتجر
+        # التأكد من وجود المجلد
         os.makedirs(self.store_path, exist_ok=True)
 
     def load_old_inventory(self) -> pd.DataFrame:
@@ -96,7 +98,6 @@ class InventoryManager:
             return
 
         try:
-            self.inventory_file = f"{self.store_path}/old_inventory.xlsx"
             updated_inventory.to_excel(self.inventory_file, index=False)
             log.info(f"✓ تم حفظ المخزون المحدث: {self.inventory_file}")
         except Exception as e:

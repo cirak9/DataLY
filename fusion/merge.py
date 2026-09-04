@@ -10,15 +10,21 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 
 # نفس منطق session/session_generator.py بالضبط (راجعه هناك للتفصيل) — يرجّع None لو
-# ما انلقى رقم عبوة حقيقي بالنص، بدل 1 ملفّق يوهم إنه قيمة مؤكدة.
+# ما انلقى رقم عبوة حقيقي بالنص، بدل 1 ملفّق يوهم إنه قيمة مؤكدة. يشمل رقم مجرّد لوحده
+# بالخلية بالكامل ("24" بدون أي كلمة عبوة مرافقة) — كافٍ بذاته بعمود معناه أصلاً "العبوة".
 _PER_BOX_WITH_WORD = re.compile(r"(?:كرتون|صندوق|كرتونة|بالة|جوال|شيكارة)\D{0,4}(\d+)")
 _PER_BOX_PARENS = re.compile(r"\((\d+)")
+_PER_BOX_BARE_NUMBER = re.compile(r"^\d+$")
 
 
 def _extract_per_box_from_unit(unit: str):
-    text = str(unit)
+    text = str(unit).strip()
     match = _PER_BOX_WITH_WORD.search(text) or _PER_BOX_PARENS.search(text)
-    return int(match.group(1)) if match else None
+    if match:
+        return int(match.group(1))
+    if _PER_BOX_BARE_NUMBER.match(text):
+        return int(text)
+    return None
 
 
 def merge_invoice_and_session(store_id: str = None) -> pd.DataFrame:

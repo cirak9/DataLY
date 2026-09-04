@@ -56,7 +56,7 @@ def process_merge(store_id: str):
     دمج جلسة الاستلام والتصدير لمنظومة السهل
     """
     log.info("=" * 80)
-    log.info(f"🔄 دمج الجلسة وتصدير ملف السهل — المتجر: {store_id}")
+    log.info(f"🔄 دمج الجلسة وتصدير ملف السهل — المتجر: {store_id or '(data/ مباشرة)'}")
     log.info("=" * 80)
 
     try:
@@ -112,10 +112,16 @@ def main():
         print("  الدمج والتصدير:")
         print("    python main.py --merge --store store_1")
         print("")
+        print("  بدون --store (متجر واحد بالمرة، ملفات جذر data/ مباشرة بلا مجلد متجر):")
+        print("    python main.py --inventory data/old_inventory.xlsx --invoice data/invoice.xlsx")
+        print("    python main.py --merge")
+        print("")
         return
 
     parser = argparse.ArgumentParser(description="DataLY — معالجة فواتير الموردين")
-    parser.add_argument("--store", required=False, help="معرف المتجر (store_1, store_2, ...)")
+    parser.add_argument("--store", required=False,
+                         help="معرف المتجر (store_1, store_2, ...) — اختياري؛ لو ما تحدده، "
+                              "الملفات تُقرأ/تُكتب بجذر data/ مباشرة (متجر واحد بالمرة)")
     parser.add_argument("--inventory", help="مسار ملف المخزون القديم")
     parser.add_argument("--invoice", help="مسار ملف الفاتورة")
     parser.add_argument("--supplier", help="مسار ملف مخزون المورد (اختياري)")
@@ -125,15 +131,12 @@ def main():
     args = parser.parse_args()
 
     if args.merge:
-        if not args.store:
-            log.error("--merge تتطلب --store")
-            return
-        process_merge(args.store)
+        process_merge(args.store or "")
     else:
-        if not all([args.store, args.inventory, args.invoice]):
-            log.error("معالجة الفاتورة تتطلب: --store, --inventory, --invoice")
+        if not all([args.inventory, args.invoice]):
+            log.error("معالجة الفاتورة تتطلب: --inventory, --invoice (و--store اختياري)")
             return
-        process_invoice(args.store, args.inventory, args.invoice, args.supplier, args.method)
+        process_invoice(args.store or "", args.inventory, args.invoice, args.supplier, args.method)
 
 
 if __name__ == "__main__":

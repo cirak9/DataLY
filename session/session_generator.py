@@ -10,18 +10,26 @@ log = get_logger()
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 
-# عدد القطع بالعبوة يُستخرج من نص "الوحدة" — أولاً صيغة "كرتون 24" (كلمة عبوة + رقم،
-# بدون قوسين، الصيغة الأشيع بالفواتير الحقيقية)، وإلا الصيغة القديمة "(24)" بأي مكان
-# بالنص (توافق خلفي). لو ما انلقى أي رقم، نرجّع None — مو 1 ملفّق يوهم إنه قيمة حقيقية
-# مؤكدة؛ الاستدعاء هو اللي يقرر قيمة افتراضية بوضوح (راجع calc_per_box).
+# عدد القطع بالعبوة يُستخرج من نص "الوحدة"/"العبوة" — بالترتيب: صيغة "كرتون 24" (كلمة
+# عبوة + رقم، بدون قوسين، الصيغة الأشيع بالفواتير الحقيقية)، وإلا الصيغة القديمة "(24)"
+# بأي مكان بالنص (توافق خلفي)، وإلا رقم مجرّد لوحده بالخلية بالكامل ("24" بدون أي كلمة) —
+# عمود "العبوة"/"الوحدة" بحكم تعريفه معناه عدد القطع بالصندوق، فرقم مجرّد فيه كافٍ بذاته
+# بدون حاجة لكلمة عبوة مرافقة (بخلاف نص عام بعمود تاني قد يحتوي رقم لسبب مختلف كلياً).
+# لو ما انلقى أي رقم إطلاقاً، نرجّع None — مو 1 ملفّق يوهم إنه قيمة حقيقية مؤكدة؛
+# الاستدعاء هو اللي يقرر قيمة افتراضية بوضوح (راجع calc_per_box).
 _PER_BOX_WITH_WORD = re.compile(r"(?:كرتون|صندوق|كرتونة|بالة|جوال|شيكارة)\D{0,4}(\d+)")
 _PER_BOX_PARENS = re.compile(r"\((\d+)")
+_PER_BOX_BARE_NUMBER = re.compile(r"^\d+$")
 
 
 def _extract_per_box_from_unit(unit: str):
-    text = str(unit)
+    text = str(unit).strip()
     match = _PER_BOX_WITH_WORD.search(text) or _PER_BOX_PARENS.search(text)
-    return int(match.group(1)) if match else None
+    if match:
+        return int(match.group(1))
+    if _PER_BOX_BARE_NUMBER.match(text):
+        return int(text)
+    return None
 
 
 def generate_session_files(df_clean: pd.DataFrame, supplier_name: str = "", store_id: str = "", method: int = 1) -> tuple[str, str]:
