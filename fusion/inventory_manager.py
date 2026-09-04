@@ -31,14 +31,20 @@ class InventoryManager:
 
     def load_old_inventory(self) -> pd.DataFrame:
         """
-        قراءة جرد المخزون القديم للمتجر
+        قراءة جرد المخزون القديم للمتجر — عبر نفس كشف الأعمدة الذكي اللي extract_old_inventory()
+        يستخدمه (extractors/inventory_extractor.py)، مو قراءة خام تفترض أعمدة barcode/name/
+        expiration جاهزة بالضبط بالملف. مهم: old_inventory.xlsx ممكن يكون ملف خام حقيقي
+        (تصدير من نظام نقاط بيع، بأعمدة زي cc/descR/date_xp) وضعه المستخدم مباشرة — قراءة
+        خام بدون كشف كانت تفشل بصمت تام: reconcile() يقارن الباركود بعمود "barcode" حرفياً،
+        فلو الملف ما فيه عمود بهذا الاسم، كل مطابقة تفشل بصمت بدون أي خطأ ظاهر (حصل فعليًا).
         """
         if not os.path.exists(self.inventory_file):
-            log.info(f"المخزون الأول للمتجر {self.store_id} (لا يوجد مخزون سابق)")
+            log.info(f"المخزون الأول للمتجر {self.store_id or '(data/ مباشرة)'} (لا يوجد مخزون سابق)")
             return pd.DataFrame(columns=['barcode', 'name', 'expiration'])
 
+        from extractors.inventory_extractor import extract_old_inventory
         try:
-            df = pd.read_excel(self.inventory_file)
+            df = extract_old_inventory(self.inventory_file, store_id=self.store_id)
             log.info(f"تم تحميل المخزون السابق: {len(df)} صنف")
             return df
         except Exception as e:
@@ -47,7 +53,7 @@ class InventoryManager:
             raise InventoryLoadError(
                 f"فشلت قراءة {self.inventory_file} رغم وجوده — لن نكمل بافتراض مخزون فاضٍ "
                 f"(قد يمسح كل تاريخ المخزون الحقيقي لهذا المتجر). تأكد إن الملف مو مفتوح ببرنامج "
-                f"آخر (إكسل مثلاً) وحاول من جديد. الخطأ الأصلي: {e}"
+                f"آخر (إكسل مثلاً) وصيغته سليمة، وحاول من جديد. الخطأ الأصلي: {e}"
             ) from e
 
     def update_inventory(self, old_inventory: pd.DataFrame, processed_invoice: pd.DataFrame) -> pd.DataFrame:
