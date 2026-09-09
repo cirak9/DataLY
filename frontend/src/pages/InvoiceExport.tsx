@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { downloadInvoiceExport } from "../lib/download";
 import { AlsahlExport, Invoice, MergeResult } from "../lib/types";
 import Layout from "../components/Layout";
 import StatusBadge from "../components/StatusBadge";
@@ -57,15 +58,8 @@ export default function InvoiceExport() {
     setDownloading(true);
     setError(null);
     try {
-      const res = await api.get(`/invoices/${invoiceId}/export/download`, { responseType: "blob" });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `output_alsahl_${invoice?.original_filename?.replace(/\.[^.]+$/, "") ?? invoiceId}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const name = `output_alsahl_${invoice?.original_filename?.replace(/\.[^.]+$/, "") ?? invoiceId}.xlsx`;
+      await downloadInvoiceExport(invoiceId!, name);
     } catch {
       setError("تعذّر تنزيل الملف");
     } finally {

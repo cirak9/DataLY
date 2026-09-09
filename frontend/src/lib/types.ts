@@ -97,6 +97,16 @@ export interface AlsahlExport {
   exported_at: string;
 }
 
+export interface InventoryLot {
+  id: number;
+  barcode: string;
+  item_name: string | null;
+  expiration_date: string | null;
+  quantity: number | null;
+  unit_cost: number | null;
+  updated_at: string;
+}
+
 export const STATUS_LABELS: Record<InvoiceStatus, string> = {
   uploaded: "مرفوعة",
   cleaned: "منظّفة",

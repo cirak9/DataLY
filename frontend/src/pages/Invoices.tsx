@@ -81,19 +81,27 @@ export default function Invoices() {
         <span className="font-medium text-slate-600">{store?.name ?? "..."}</span>
       </div>
 
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-ink">فواتير {store?.name}</h1>
-        <label className="cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700">
-          {upload.isPending ? "...جار الرفع" : "+ رفع فاتورة"}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={handleFileChange}
-            disabled={upload.isPending}
-            className="hidden"
-          />
-        </label>
+        <div className="flex items-center gap-4">
+          <Link to={`/stores/${storeId}/inventory`} className="text-sm font-medium text-slate-500 hover:text-slate-700">
+            المخزون
+          </Link>
+          <Link to={`/stores/${storeId}/history`} className="text-sm font-medium text-slate-500 hover:text-slate-700">
+            السجل
+          </Link>
+          <label className="cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700">
+            {upload.isPending ? "...جار الرفع" : "+ رفع فاتورة"}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleFileChange}
+              disabled={upload.isPending}
+              className="hidden"
+            />
+          </label>
+        </div>
       </div>
 
       {uploadError && (

@@ -7,7 +7,8 @@ import InvoiceReview from "./pages/InvoiceReview";
 import InvoiceSession from "./pages/InvoiceSession";
 import InvoiceReconciliation from "./pages/InvoiceReconciliation";
 import InvoiceExport from "./pages/InvoiceExport";
-import ComingSoon from "./components/ComingSoon";
+import Inventory from "./pages/Inventory";
+import InvoiceHistory from "./pages/InvoiceHistory";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -27,11 +28,11 @@ function Routed() {
       />
       <Route
         path="/stores/:storeId/inventory"
-        element={<ProtectedRoute><ComingSoon title="المخزون" /></ProtectedRoute>}
+        element={<ProtectedRoute><Inventory /></ProtectedRoute>}
       />
       <Route
         path="/stores/:storeId/history"
-        element={<ProtectedRoute><ComingSoon title="سجل الفواتير" /></ProtectedRoute>}
+        element={<ProtectedRoute><InvoiceHistory /></ProtectedRoute>}
       />
 
       <Route
