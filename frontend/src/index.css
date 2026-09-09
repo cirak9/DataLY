@@ -4,5 +4,7 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  font-family: "IBM Plex Sans Arabic", Tahoma, sans-serif;
+  background: #F4F6F9;
+  color: #0D1117;
 }

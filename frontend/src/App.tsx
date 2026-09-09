@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./lib/auth";
 import Login from "./pages/Login";
 import Stores from "./pages/Stores";
+import Invoices from "./pages/Invoices";
+import InvoiceReview from "./pages/InvoiceReview";
 import ComingSoon from "./components/ComingSoon";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -18,11 +20,7 @@ function Routed() {
       <Route path="/stores" element={<ProtectedRoute><Stores /></ProtectedRoute>} />
       <Route
         path="/stores/:storeId/invoices"
-        element={<ProtectedRoute><ComingSoon title="فواتير المتجر" /></ProtectedRoute>}
-      />
-      <Route
-        path="/stores/:storeId/invoices/new"
-        element={<ProtectedRoute><ComingSoon title="رفع فاتورة جديدة" /></ProtectedRoute>}
+        element={<ProtectedRoute><Invoices /></ProtectedRoute>}
       />
       <Route
         path="/stores/:storeId/inventory"
@@ -35,7 +33,7 @@ function Routed() {
 
       <Route
         path="/invoices/:invoiceId/review"
-        element={<ProtectedRoute><ComingSoon title="مراجعة أصناف الفاتورة" /></ProtectedRoute>}
+        element={<ProtectedRoute><InvoiceReview /></ProtectedRoute>}
       />
       <Route
         path="/invoices/:invoiceId/session"

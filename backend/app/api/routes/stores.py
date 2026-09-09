@@ -25,6 +25,14 @@ def create_store(payload: StoreCreate, db: Session = Depends(get_db)):
     return store
 
 
+@router.get("/stores/{store_id}", response_model=StoreOut)
+def get_store(store_id: int, db: Session = Depends(get_db)):
+    store = db.get(Store, store_id)
+    if not store:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="المتجر غير موجود")
+    return store
+
+
 @router.get("/suppliers", response_model=list[SupplierOut])
 def list_suppliers(db: Session = Depends(get_db)):
     return db.query(Supplier).order_by(Supplier.name).all()
