@@ -5,6 +5,7 @@ import Stores from "./pages/Stores";
 import Invoices from "./pages/Invoices";
 import InvoiceReview from "./pages/InvoiceReview";
 import InvoiceSession from "./pages/InvoiceSession";
+import InvoiceReconciliation from "./pages/InvoiceReconciliation";
 import ComingSoon from "./components/ComingSoon";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -42,7 +43,7 @@ function Routed() {
       />
       <Route
         path="/invoices/:invoiceId/reconciliation"
-        element={<ProtectedRoute><ComingSoon title="مطابقة الأصناف" /></ProtectedRoute>}
+        element={<ProtectedRoute><InvoiceReconciliation /></ProtectedRoute>}
       />
       <Route
         path="/invoices/:invoiceId/export"
