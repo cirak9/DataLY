@@ -41,17 +41,10 @@ def _resolve_export_category(db: Session, item: InvoiceItem, barcode: str | None
     return "", ""
 
 
-def export_invoice(db: Session, invoice: Invoice) -> AlsahlExport:
-    """
-    بديل export_to_alsahl(): يبني صف واحد لكل صنف بنفس ترتيب/تنسيق ملف Alsahl الأصلي
-    بالضبط (نظام خارجي حقيقي يقرأ هذي الصيغة تحديداً). كل استدعاء يُنشئ سجل تصدير
-    جديد (أرشيف كامل، بديل output_alsahl.xlsx المفرد اللي كان يُكتب فوقه بكل مرة) —
-    التصدير المتكرر لنفس الفاتورة مسموح ومُتوقَّع (تنزيل الملف مرة ثانية مثلاً)، بس
-    الحالة تنتقل لـexported أول مرة بس.
-    """
-    if invoice.status not in _TERMINAL_STATUSES:
-        raise ExportError(f"لازم تكمل الدمج أولاً (الحالة الحالية: {invoice.status}) قبل التصدير.")
-
+def build_export_bytes(db: Session, invoice: Invoice) -> bytes:
+    """يبني صف واحد لكل صنف بنفس ترتيب/تنسيق ملف Alsahl الأصلي بالضبط (نظام خارجي
+    حقيقي يقرأ هذي الصيغة تحديداً)، مباشرة من بيانات الفاتورة بقاعدة البيانات —
+    بدون اعتماد على وجود ملف على القرص (قرص Render المجاني مؤقت وينمسح بإعادة النشر)."""
     session = db.query(IntakeSession).filter(IntakeSession.invoice_id == invoice.id).first()
     barcode_by_item = {si.invoice_item_id: si for si in (session.items if session else [])}
 
@@ -77,7 +70,21 @@ def export_invoice(db: Session, invoice: Invoice) -> AlsahlExport:
             "ب_الصندوق": "",
         })
 
-    file_bytes = build_alsahl_workbook(rows)
+    return build_alsahl_workbook(rows)
+
+
+def export_invoice(db: Session, invoice: Invoice) -> AlsahlExport:
+    """
+    بديل export_to_alsahl(): كل استدعاء يُنشئ سجل تصدير جديد (أرشيف كامل، بديل
+    output_alsahl.xlsx المفرد اللي كان يُكتب فوقه بكل مرة) — التصدير المتكرر لنفس
+    الفاتورة مسموح ومُتوقَّع (تنزيل الملف مرة ثانية مثلاً)، بس الحالة تنتقل
+    لـexported أول مرة بس. الملف على القرص أرشيف فقط؛ التنزيل يُعاد بناؤه من
+    قاعدة البيانات مباشرة (انظر build_export_bytes) لأن قرص Render المجاني مؤقت.
+    """
+    if invoice.status not in _TERMINAL_STATUSES:
+        raise ExportError(f"لازم تكمل الدمج أولاً (الحالة الحالية: {invoice.status}) قبل التصدير.")
+
+    file_bytes = build_export_bytes(db, invoice)
 
     filename = f"{uuid.uuid4().hex}.xlsx"
     path = os.path.join(_exports_dir(invoice.store_id), filename)

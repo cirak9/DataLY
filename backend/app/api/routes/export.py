@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -31,7 +31,7 @@ def export_invoice(invoice_id: int, db: Session = Depends(get_db)):
 
 @router.get("/invoices/{invoice_id}/export/download")
 def download_latest_export(invoice_id: int, db: Session = Depends(get_db)):
-    _get_invoice_or_404(db, invoice_id)
+    invoice = _get_invoice_or_404(db, invoice_id)
     export = (
         db.query(AlsahlExport)
         .filter(AlsahlExport.invoice_id == invoice_id)
@@ -41,8 +41,13 @@ def download_latest_export(invoice_id: int, db: Session = Depends(get_db)):
     if not export:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ما فيه ملف تصدير لهذي الفاتورة بعد")
 
-    return FileResponse(
-        export.file_path,
+    # يُعاد بناء الملف من قاعدة البيانات مباشرة بدل قراءته من القرص — قرص Render
+    # المجاني مؤقت وينمسح بإعادة النشر/التشغيل، فملف export.file_path قد لا يكون
+    # موجوداً فعلياً حتى لو سجل التصدير موجود بقاعدة البيانات.
+    file_bytes = export_service.build_export_bytes(db, invoice)
+
+    return Response(
+        content=file_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename="output_alsahl.xlsx",
+        headers={"Content-Disposition": 'attachment; filename="output_alsahl.xlsx"'},
     )
