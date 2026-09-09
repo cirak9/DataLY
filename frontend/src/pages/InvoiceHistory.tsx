@@ -42,7 +42,7 @@ export default function InvoiceHistory() {
         <span className="font-medium text-slate-600">{store?.name ?? "..."}</span>
       </div>
 
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-ink">سجل الفواتير المصدَّرة</h1>
         <Link
           to={`/stores/${storeId}/invoices`}
@@ -59,41 +59,68 @@ export default function InvoiceHistory() {
           ما فيه فواتير مُصدَّرة بعد — الفواتير المكتملة (بعد التصدير) تظهر هنا.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-right text-xs font-medium text-slate-500">
-                <th className="px-4 py-3">الملف</th>
-                <th className="px-4 py-3">المورد</th>
-                <th className="px-4 py-3">تاريخ الرفع</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {exported.map((inv) => (
-                <tr key={inv.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 font-medium text-ink">{inv.original_filename ?? "—"}</td>
-                  <td className="px-4 py-3 text-slate-500">{inv.supplier_name_raw ?? "—"}</td>
-                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-400">
-                    {new Date(inv.uploaded_at).toLocaleString("ar-LY", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-left">
-                    <button
-                      onClick={() => handleDownload(inv)}
-                      disabled={downloadingId === inv.id}
-                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-60"
-                    >
-                      {downloadingId === inv.id ? "...جار التنزيل" : "📥 تنزيل"}
-                    </button>
-                  </td>
+        <>
+          {/* بطاقات للموبايل */}
+          <div className="flex flex-col gap-3 sm:hidden">
+            {exported.map((inv) => (
+              <div key={inv.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="mb-1 flex items-start justify-between gap-3">
+                  <span className="font-medium text-ink">{inv.original_filename ?? "—"}</span>
+                  <button
+                    onClick={() => handleDownload(inv)}
+                    disabled={downloadingId === inv.id}
+                    className="flex-shrink-0 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-60"
+                  >
+                    {downloadingId === inv.id ? "...جار التنزيل" : "📥 تنزيل"}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>{inv.supplier_name_raw ?? "—"}</span>
+                  <span className="font-mono">
+                    {new Date(inv.uploaded_at).toLocaleDateString("ar-LY", { dateStyle: "medium" })}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* جدول لعرض الشاشة الأكبر */}
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white sm:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-right text-xs font-medium text-slate-500">
+                  <th className="px-4 py-3">الملف</th>
+                  <th className="px-4 py-3">المورد</th>
+                  <th className="px-4 py-3">تاريخ الرفع</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {exported.map((inv) => (
+                  <tr key={inv.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-4 py-3 font-medium text-ink">{inv.original_filename ?? "—"}</td>
+                    <td className="px-4 py-3 text-slate-500">{inv.supplier_name_raw ?? "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-400">
+                      {new Date(inv.uploaded_at).toLocaleString("ar-LY", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-left">
+                      <button
+                        onClick={() => handleDownload(inv)}
+                        disabled={downloadingId === inv.id}
+                        className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-60"
+                      >
+                        {downloadingId === inv.id ? "...جار التنزيل" : "📥 تنزيل"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </Layout>
   );

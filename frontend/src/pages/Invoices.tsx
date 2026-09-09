@@ -81,16 +81,18 @@ export default function Invoices() {
         <span className="font-medium text-slate-600">{store?.name ?? "..."}</span>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-ink">فواتير {store?.name}</h1>
-        <div className="flex items-center gap-4">
-          <Link to={`/stores/${storeId}/inventory`} className="text-sm font-medium text-slate-500 hover:text-slate-700">
-            المخزون
-          </Link>
-          <Link to={`/stores/${storeId}/history`} className="text-sm font-medium text-slate-500 hover:text-slate-700">
-            السجل
-          </Link>
-          <label className="cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700">
+        <div className="flex items-center justify-between gap-4 sm:justify-end">
+          <div className="flex items-center gap-4">
+            <Link to={`/stores/${storeId}/inventory`} className="text-sm font-medium text-slate-500 hover:text-slate-700">
+              المخزون
+            </Link>
+            <Link to={`/stores/${storeId}/history`} className="text-sm font-medium text-slate-500 hover:text-slate-700">
+              السجل
+            </Link>
+          </div>
+          <label className="cursor-pointer whitespace-nowrap rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700">
             {upload.isPending ? "...جار الرفع" : "+ رفع فاتورة"}
             <input
               ref={fileInputRef}
@@ -117,39 +119,64 @@ export default function Invoices() {
           مافيش فواتير بعد — ارفع أول فاتورة عشان تبدأ.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-right text-xs font-medium text-slate-500">
-                <th className="px-4 py-3">الملف</th>
-                <th className="px-4 py-3">المورد</th>
-                <th className="px-4 py-3">الحالة</th>
-                <th className="px-4 py-3">تاريخ الرفع</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((inv) => (
-                <tr
-                  key={inv.id}
-                  onClick={() => navigate(nextStepPath(inv))}
-                  className="cursor-pointer border-b border-slate-100 transition last:border-0 hover:bg-brand-50/40"
-                >
-                  <td className="px-4 py-3 font-medium text-ink">{inv.original_filename ?? "—"}</td>
-                  <td className="px-4 py-3 text-slate-500">{inv.supplier_name_raw ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={inv.status} />
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-400">
-                    {new Date(inv.uploaded_at).toLocaleString("ar-LY", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </td>
+        <>
+          {/* بطاقات للموبايل — جدول بأربعة أعمدة ما يتسع بعرض هاتف، بدل تمرير أفقي مزعج */}
+          <div className="flex flex-col gap-3 sm:hidden">
+            {invoices.map((inv) => (
+              <button
+                key={inv.id}
+                onClick={() => navigate(nextStepPath(inv))}
+                className="rounded-xl border border-slate-200 bg-white p-4 text-right transition hover:border-brand-300"
+              >
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <span className="font-medium text-ink">{inv.original_filename ?? "—"}</span>
+                  <StatusBadge status={inv.status} />
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>{inv.supplier_name_raw ?? "—"}</span>
+                  <span className="font-mono">
+                    {new Date(inv.uploaded_at).toLocaleDateString("ar-LY", { dateStyle: "medium" })}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* جدول لعرض الشاشة الأكبر */}
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white sm:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-right text-xs font-medium text-slate-500">
+                  <th className="px-4 py-3">الملف</th>
+                  <th className="px-4 py-3">المورد</th>
+                  <th className="px-4 py-3">الحالة</th>
+                  <th className="px-4 py-3">تاريخ الرفع</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {invoices.map((inv) => (
+                  <tr
+                    key={inv.id}
+                    onClick={() => navigate(nextStepPath(inv))}
+                    className="cursor-pointer border-b border-slate-100 transition last:border-0 hover:bg-brand-50/40"
+                  >
+                    <td className="px-4 py-3 font-medium text-ink">{inv.original_filename ?? "—"}</td>
+                    <td className="px-4 py-3 text-slate-500">{inv.supplier_name_raw ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={inv.status} />
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-400">
+                      {new Date(inv.uploaded_at).toLocaleString("ar-LY", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </Layout>
   );

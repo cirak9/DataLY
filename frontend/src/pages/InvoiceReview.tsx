@@ -85,7 +85,7 @@ export default function InvoiceReview() {
         <span className="font-medium text-slate-600">{invoice.original_filename}</span>
       </div>
 
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-ink">مراجعة الفاتورة</h1>
           <StatusBadge status={invoice.status} />
@@ -95,7 +95,7 @@ export default function InvoiceReview() {
           <button
             onClick={() => clean.mutate()}
             disabled={clean.isPending}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
+            className="self-start rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60 sm:self-auto"
           >
             {clean.isPending ? "...جار التنظيف" : "نظّف الفاتورة"}
           </button>
@@ -103,7 +103,7 @@ export default function InvoiceReview() {
           <button
             onClick={() => startSession.mutate()}
             disabled={startSession.isPending || invoice.status !== "cleaned"}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
+            className="self-start rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60 sm:self-auto"
           >
             {startSession.isPending ? "...جار البدء" : "التالي: جلسة الاستلام ←"}
           </button>
@@ -128,51 +128,98 @@ export default function InvoiceReview() {
       ) : isLoading ? (
         <p className="text-sm text-slate-500">...جار التحميل</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-right text-xs font-medium text-slate-500">
-                <th className="px-3 py-3">الصنف</th>
-                <th className="px-3 py-3">التصنيف</th>
-                <th className="px-3 py-3">الكمية</th>
-                <th className="px-3 py-3">العبوة</th>
-                <th className="px-3 py-3">تكلفة الوحدة</th>
-                <th className="px-3 py-3">الإجمالي</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items?.map((item) => (
-                <tr key={item.id} className="border-b border-slate-100 last:border-0">
-                  <td className="min-w-[220px] px-1 py-1">
-                    <EditableCell
-                      value={item.item_name}
-                      onSave={(v) => updateItem.mutate({ itemId: item.id, field: "item_name", value: v })}
-                    />
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
-                    {item.category ? `${item.category.main} / ${item.category.sub}` : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-600">
-                    {item.quantity_pieces}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-600">
-                    {item.per_box ?? <span className="text-slate-300">—</span>}
-                  </td>
-                  <td className="min-w-[110px] px-1 py-1">
-                    <EditableCell
-                      value={item.unit_cost ?? 0}
-                      mono
-                      onSave={(v) => updateItem.mutate({ itemId: item.id, field: "unit_cost", value: v })}
-                    />
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-600">
-                    {item.total_price ?? "—"}
-                  </td>
+        <>
+          {/* بطاقات للموبايل — جدول بستة أعمدة ما يتسع بعرض هاتف */}
+          <div className="flex flex-col gap-3 sm:hidden">
+            {items?.map((item) => (
+              <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                <input
+                  defaultValue={item.item_name}
+                  onBlur={(e) => {
+                    if (e.target.value !== item.item_name)
+                      updateItem.mutate({ itemId: item.id, field: "item_name", value: e.target.value });
+                  }}
+                  className="mb-1 w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-right font-medium text-ink outline-none focus:border-slate-200 focus:ring-2 focus:ring-brand-100"
+                />
+                <p className="mb-3 text-xs text-slate-400">
+                  {item.category ? `${item.category.main} / ${item.category.sub}` : "بلا تصنيف"}
+                </p>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-lg bg-slate-50 py-2">
+                    <div className="text-slate-400">الكمية</div>
+                    <div className="mt-0.5 font-mono text-ink">{item.quantity_pieces}</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 py-2">
+                    <div className="text-slate-400">العبوة</div>
+                    <div className="mt-0.5 font-mono text-ink">{item.per_box ?? "—"}</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 py-2">
+                    <div className="text-slate-400">الإجمالي</div>
+                    <div className="mt-0.5 font-mono text-ink">{item.total_price ?? "—"}</div>
+                  </div>
+                </div>
+                <label className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-400">تكلفة الوحدة</span>
+                  <input
+                    defaultValue={item.unit_cost ?? 0}
+                    onBlur={(e) => {
+                      if (e.target.value !== String(item.unit_cost ?? 0))
+                        updateItem.mutate({ itemId: item.id, field: "unit_cost", value: e.target.value });
+                    }}
+                    className="w-24 rounded border border-slate-200 px-2 py-1 text-center font-mono text-ink outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+
+          {/* جدول لعرض الشاشة الأكبر */}
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white sm:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-right text-xs font-medium text-slate-500">
+                  <th className="px-3 py-3">الصنف</th>
+                  <th className="px-3 py-3">التصنيف</th>
+                  <th className="px-3 py-3">الكمية</th>
+                  <th className="px-3 py-3">العبوة</th>
+                  <th className="px-3 py-3">تكلفة الوحدة</th>
+                  <th className="px-3 py-3">الإجمالي</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {items?.map((item) => (
+                  <tr key={item.id} className="border-b border-slate-100 last:border-0">
+                    <td className="min-w-[220px] px-1 py-1">
+                      <EditableCell
+                        value={item.item_name}
+                        onSave={(v) => updateItem.mutate({ itemId: item.id, field: "item_name", value: v })}
+                      />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
+                      {item.category ? `${item.category.main} / ${item.category.sub}` : "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-600">
+                      {item.quantity_pieces}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-600">
+                      {item.per_box ?? <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="min-w-[110px] px-1 py-1">
+                      <EditableCell
+                        value={item.unit_cost ?? 0}
+                        mono
+                        onSave={(v) => updateItem.mutate({ itemId: item.id, field: "unit_cost", value: v })}
+                      />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-600">
+                      {item.total_price ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </Layout>
   );

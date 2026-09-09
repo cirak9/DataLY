@@ -68,13 +68,13 @@ export default function Inventory() {
         <span className="font-medium text-slate-600">{store?.name ?? "..."}</span>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-ink">مخزون {store?.name}</h1>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="بحث بالاسم أو الباركود..."
-          className="w-64 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 sm:w-64"
         />
       </div>
 
@@ -89,36 +89,55 @@ export default function Inventory() {
           ما فيه نتائج تطابق البحث.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-right text-xs font-medium text-slate-500">
-                <th className="px-4 py-3">الصنف</th>
-                <th className="px-4 py-3">الباركود</th>
-                <th className="px-4 py-3">الصلاحية</th>
-                <th className="px-4 py-3">الكمية</th>
-                <th className="px-4 py-3">تكلفة الوحدة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((lot) => (
-                <tr key={lot.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 font-medium text-ink">{lot.item_name ?? "—"}</td>
-                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-500">{lot.barcode}</td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <ExpiryBadge date={lot.expiration_date} />
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
-                    {lot.quantity ?? "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
-                    {lot.unit_cost ?? "—"}
-                  </td>
+        <>
+          {/* بطاقات للموبايل — جدول بخمسة أعمدة ما يتسع بعرض هاتف */}
+          <div className="flex flex-col gap-3 sm:hidden">
+            {filtered.map((lot) => (
+              <div key={lot.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="mb-1 font-medium text-ink">{lot.item_name ?? "—"}</div>
+                <div className="mb-3 font-mono text-xs text-slate-400">{lot.barcode}</div>
+                <div className="flex items-center justify-between text-xs">
+                  <ExpiryBadge date={lot.expiration_date} />
+                  <span className="font-mono text-slate-500">
+                    {lot.quantity ?? "—"} × {lot.unit_cost ?? "—"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* جدول لعرض الشاشة الأكبر */}
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white sm:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-right text-xs font-medium text-slate-500">
+                  <th className="px-4 py-3">الصنف</th>
+                  <th className="px-4 py-3">الباركود</th>
+                  <th className="px-4 py-3">الصلاحية</th>
+                  <th className="px-4 py-3">الكمية</th>
+                  <th className="px-4 py-3">تكلفة الوحدة</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filtered.map((lot) => (
+                  <tr key={lot.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-4 py-3 font-medium text-ink">{lot.item_name ?? "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-500">{lot.barcode}</td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <ExpiryBadge date={lot.expiration_date} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
+                      {lot.quantity ?? "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
+                      {lot.unit_cost ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </Layout>
   );
