@@ -4,6 +4,7 @@ from sqlalchemy import String, Integer, Boolean, Numeric, Date, DateTime, Foreig
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+from app.models.invoice import Invoice, InvoiceItem  # noqa: F401 — لازم للـrelationship تحت
 
 
 class IntakeSession(Base):
@@ -22,6 +23,7 @@ class IntakeSession(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     items: Mapped[list["SessionItem"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    invoice: Mapped["Invoice"] = relationship(lazy="joined")
 
 
 class SessionItem(Base):
@@ -44,3 +46,12 @@ class SessionItem(Base):
     is_complete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     session: Mapped["IntakeSession"] = relationship(back_populates="items")
+    invoice_item: Mapped["InvoiceItem"] = relationship(lazy="joined")
+
+    @property
+    def item_name(self) -> str:
+        return self.invoice_item.item_name
+
+    @property
+    def unit_cost(self) -> float | None:
+        return self.invoice_item.unit_cost
