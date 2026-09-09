@@ -10,9 +10,15 @@ backend/.env
 backend/storage/
 backend/.pytest_cache/
 backend/**/__pycache__/
+backend/uvicorn.log
 
 # frontend (Vite/React)
 frontend/node_modules/
 frontend/dist/
 frontend/.env
 frontend/.env.local
+frontend/tsconfig.tsbuildinfo
+frontend/run-dev.bat
+
+# إعدادات جلسة Claude Code المحلية (تشغيل معاينة المتصفح) — مو جزء من المشروع
+.claude/
