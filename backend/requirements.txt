@@ -7,6 +7,10 @@ pydantic[email]>=2.5
 pydantic-settings>=2.1
 python-jose[cryptography]>=3.3
 passlib[bcrypt]>=1.7
+# مثبّت على 4.0.1 عمداً: passlib (غير محدَّث منذ فترة) يفشل بفحص نسخة bcrypt 4.1+/5.x
+# (بحث عن bcrypt.__about__.__version__ اللي انحذف). راجع:
+# https://github.com/pyca/bcrypt/issues/684
+bcrypt==4.0.1
 python-multipart>=0.0.9
 pandas>=2.0
 openpyxl>=3.1
