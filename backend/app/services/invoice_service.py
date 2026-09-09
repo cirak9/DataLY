@@ -12,6 +12,7 @@ from app.core_logic.invoice_calc import calc_per_box, calc_total, calc_unit_cost
 from app.core_logic.validators import InvoiceValidationError
 from app.models.invoice import Invoice, InvoiceItem
 from app.models.store import Supplier
+from app.services import catalog_service
 
 SUPPORTED_EXCEL = {".xlsx", ".xls"}
 
@@ -76,9 +77,10 @@ def _get_or_create_supplier(db: Session, name: str) -> Supplier | None:
 def clean_invoice(db: Session, invoice: Invoice) -> Invoice:
     """
     يشغّل extract_from_excel + clean_data (منقولين حرفياً من الأداة الأصلية) على الملف
-    المحفوظ، ويحفظ الأصناف بجدول invoice_items. التصنيف (category_id) يبقى فاضٍ بهالخطوة
-    — إضافة لاحقة (يحتاج نقل utils/categorizer.py + تغذية جدولي categories/category_keywords
-    من categories.json أولاً، راجع خطة الهجرة قسم 7).
+    المحفوظ، ويحفظ الأصناف بجدول invoice_items — بما فيها التصنيف (category_id) عبر
+    catalog_service.get_category_id(). الباركود لسا مو معروف بهالمرحلة (يجي لاحقاً من
+    جلسة استلام التاجر بالطريقة الأولى)، فالتصنيف هنا مبني على تخمين الاسم بس — نفس
+    ترتيب الأولوية الأصلي، أولوية الباركود تُفعَّل تلقائياً لاحقاً وقت الدمج لما يصير معروف.
     """
     df_raw, supplier_name = extract_from_excel(invoice.raw_file_path)
     df_clean = clean_data(df_raw)  # يرفع InvoiceValidationError لو فيه مشكلة — تنعكس 422 بالـAPI
@@ -92,10 +94,15 @@ def clean_invoice(db: Session, invoice: Invoice) -> Invoice:
 
     for _, row in df_clean.iterrows():
         row_dict = row.to_dict()
+        item_name = str(row_dict.get("item_name", "")).strip()
+        category_id = catalog_service.get_category_id(
+            db, item_name, category_hint=str(row_dict.get("category", "") or "")
+        )
         item = InvoiceItem(
             invoice_id=invoice.id,
             item_order=int(row_dict.get("item_id", 0)),
-            item_name=str(row_dict.get("item_name", "")).strip(),
+            item_name=item_name,
+            category_id=category_id,
             unit_text=str(row_dict.get("unit", "")).strip() or None,
             quantity_pieces=float(row_dict.get("boxes", 0) or 0),
             per_box=calc_per_box(row_dict),

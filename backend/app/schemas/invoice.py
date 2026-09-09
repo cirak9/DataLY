@@ -16,12 +16,21 @@ class InvoiceOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CategoryOut(BaseModel):
+    id: int
+    main: str
+    sub: str
+
+    model_config = {"from_attributes": True}
+
+
 class InvoiceItemOut(BaseModel):
     id: int
     invoice_id: int
     item_order: int
     item_name: str
     category_id: int | None
+    category: CategoryOut | None
     unit_text: str | None
     quantity_pieces: float
     per_box: int | None

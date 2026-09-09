@@ -6,6 +6,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+from app.models.catalog import Category  # noqa: F401 — لازم للـrelationship("Category") تحت
 
 
 class Invoice(Base):
@@ -59,6 +60,7 @@ class InvoiceItem(Base):
 
     item_name: Mapped[str] = mapped_column(Text, nullable=False)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
+    category: Mapped["Category"] = relationship(lazy="joined")
 
     unit_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
     quantity_pieces: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False)
