@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routes import auth, stores, invoices, sessions, reconciliation
+from app.api.routes import auth, stores, invoices, sessions, reconciliation, merge
 
 app = FastAPI(title="DataLY API", version="0.1.0")
 
@@ -19,6 +19,7 @@ app.include_router(stores.router)
 app.include_router(invoices.router)
 app.include_router(sessions.router)
 app.include_router(reconciliation.router)
+app.include_router(merge.router)
 
 
 @app.get("/health")
