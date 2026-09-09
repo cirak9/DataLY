@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.invoice import Invoice
 from app.models.session import IntakeSession, SessionItem
+from app.services import reconciliation_service
 
 
 class SessionValidationError(Exception):
@@ -88,7 +89,10 @@ def update_session_item(db: Session, session: IntakeSession, item_id: int, updat
 
 def complete_session(db: Session, session: IntakeSession) -> IntakeSession:
     """يقفل الجلسة بعد التأكد إن كل الأصناف مكتملة — بديل زر التحميل اللي كان يظهر
-    بس بعد اكتمال كل الأصناف بـreceiving_app.py."""
+    بس بعد اكتمال كل الأصناف بـreceiving_app.py. مباشرة بعدها يطلق التسوية
+    (reconciliation_service.generate_matches) — بديل استدعاء reconcile_dataframes()
+    يدوياً بالخطوة التالية بـmain.py الأصلي، هون جزء من نفس فعل "إكمال الجلسة".
+    """
     if session.status == "complete":
         raise SessionValidationError("الجلسة مكتملة أصلاً.")
 
@@ -105,4 +109,11 @@ def complete_session(db: Session, session: IntakeSession) -> IntakeSession:
     session.invoice.status = "session_complete"
     db.commit()
     db.refresh(session)
+
+    try:
+        reconciliation_service.generate_matches(db, session.invoice)
+    except reconciliation_service.ReconciliationError as e:
+        raise SessionValidationError(str(e))
+    db.refresh(session)
+
     return session

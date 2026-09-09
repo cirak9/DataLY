@@ -1,9 +1,10 @@
 from datetime import datetime
 
 from sqlalchemy import String, Text, Numeric, DateTime, ForeignKey, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+from app.models.invoice import InvoiceItem  # noqa: F401 — لازم للـrelationship تحت
 
 
 class ReconciliationMatch(Base):
@@ -38,3 +39,9 @@ class ReconciliationMatch(Base):
     manual_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    invoice_item: Mapped["InvoiceItem"] = relationship(lazy="joined")
+
+    @property
+    def item_name(self) -> str:
+        return self.invoice_item.item_name
