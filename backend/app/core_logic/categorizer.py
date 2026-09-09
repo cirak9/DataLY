@@ -87,6 +87,12 @@ def get_category_by_name(item_name: str, category_hint: str = "", sub_hint: str 
         for kw_lower, main, sub, is_protected in _ALL_KEYWORDS:
             if is_protected or len(kw_lower) < 4:
                 continue
+            # تخطي الكلمات المفتاحية المكوّنة من أكثر من كلمة — partial_ratio يقارن كلمة
+            # نصية مفردة بعبارة كاملة، فيكفي تطابق جزء صغير منها (زي "طبخ" المشتركة بين
+            # "مطبخ" و"كريمة طبخ") ليطلع تشابه عالي رغم اختلاف المعنى كلياً. العبارات
+            # متعددة الكلمات مغطاة أصلاً بمطابقة العبارة الدقيقة فوق (bigram).
+            if " " in kw_lower:
+                continue
             if abs(len(kw_lower) - len(text_word)) > 5:
                 continue
             score = fuzz.partial_ratio(kw_lower, text_word)

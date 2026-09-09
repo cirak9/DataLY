@@ -116,6 +116,14 @@ def get_category(item_name: str, category_hint: str = "", sub_hint: str = "", ba
             if is_protected or len(kw_lower) < 4:
                 continue
 
+            # تخطي الكلمات المفتاحية المكوّنة من أكثر من كلمة — partial_ratio يقارن
+            # كلمة نصية مفردة بعبارة كاملة، فيكفي تطابق جزء صغير منها (زي "طبخ" المشتركة
+            # بين "مطبخ" و"كريمة طبخ") ليطلع تشابه عالي رغم اختلاف المعنى كلياً. العبارات
+            # متعددة الكلمات مغطاة أصلاً بمطابقة العبارة الدقيقة فوق (bigram)، فوجودها هون
+            # زيادة خطر بدون أي فايدة حقيقية.
+            if " " in kw_lower:
+                continue
+
             # تخطي إذا كانت الفروقات كبيرة
             if abs(len(kw_lower) - len(text_word)) > 5:
                 continue

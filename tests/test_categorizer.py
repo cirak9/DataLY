@@ -14,11 +14,11 @@ def test_detergent_matches():
 def test_whole_word_bayd_not_confused_with_mobayed():
     # "بيض" يجب ألا يتطابق مع "مبيض" (كلور)
     result = get_category("كلور مبيض للملابس")
-    assert result != ("مواد غذائية", "ألبان ومشتقات")
+    assert result != ("مواد غذائية", "منتجات ألبان")
 
 
 def test_real_egg_matches():
-    assert get_category("بيض بلدي طازج 30 حبة") == ("مواد غذائية", "ألبان ومشتقات")
+    assert get_category("بيض بلدي طازج 30 حبة") == ("مواد غذائية", "منتجات ألبان")
 
 
 def test_san_bug_fixed():
@@ -41,7 +41,7 @@ def test_powder_bug_milk_powder_not_confused_with_detergent():
     result = get_category("مسحوق حليب أطفال 400 جرام")
     assert result != ("منظفات منزلية", "غسيل ملابس"), \
         "خلل 'مسحوق' المجرّدة يصنّف مساحيق غذائية كمنظفات — تأكد حذفها من keywords"
-    assert get_category("مسحوق حليب أطفال 400 جرام") == ("مواد غذائية", "ألبان ومشتقات")
+    assert get_category("مسحوق حليب أطفال 400 جرام") == ("مواد غذائية", "منتجات ألبان")
 
 
 def test_mayonnaise_not_confused_with_water():
