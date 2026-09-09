@@ -1,14 +1,15 @@
 # DataLY Backend (FastAPI)
 
-Backend الجديد يعيد استخدام منطق العمل الحقيقي من الأداة الأصلية (`extractors/`,
-`transformers/`, `fusion/`, `utils/`, `adapters/` بجذر المشروع) فوق قاعدة بيانات
-PostgreSQL بدل ملفات إكسل. راجع الخطة الكاملة بـ[`docs/REBUILD_PLAN.md`](../docs/REBUILD_PLAN.md).
+يعيد استخدام منطق العمل الحقيقي من الأداة الأصلية (`extractors/`, `transformers/`,
+`fusion/`, `utils/`, `adapters/` بجذر المشروع) فوق قاعدة بيانات PostgreSQL بدل ملفات
+إكسل. خط الأنابيب كامل ومتحقق منه فعلياً ضد Supabase حقيقية — راجع `docs/REBUILD_PLAN.md`
+للخطة الكاملة وقرارات التصميم.
 
 ## الإعداد المحلي
 
 1. **قاعدة بيانات Postgres** — أي وحدة من الاثنين:
    - محلياً عبر Docker: `docker compose up -d` (بجذر المشروع، يشغّل Postgres على `localhost:5432`).
-   - أو حساب Supabase مجاني (نفس الخدمة اللي راح نستخدمها بالاستضافة لاحقاً) — أنشئ مشروع، وخذ الـ`DATABASE_URL` من إعدادات الاتصال.
+   - أو حساب Supabase مجاني (نفس الخدمة المستخدمة بالاستضافة) — أنشئ مشروع، وخذ الـ`DATABASE_URL` من إعدادات الاتصال.
 
 2. **بيئة بايثون:**
    ```bash
@@ -17,7 +18,7 @@ PostgreSQL بدل ملفات إكسل. راجع الخطة الكاملة بـ[`
    cp .env.example .env   # وعبّي DATABASE_URL/JWT_SECRET
    ```
 
-3. **تشغيل الهجرات (إنشاء الجداول):**
+3. **تشغيل الهجرات (إنشاء الجداول + بذر التصنيفات):**
    ```bash
    python -m alembic upgrade head
    ```
@@ -44,10 +45,69 @@ pytest
 ```
 app/
   core/        إعدادات، اتصال قاعدة البيانات، JWT
-  models/      SQLAlchemy — نفس الجداول بخطة إعادة البناء
+  models/      SQLAlchemy — كل الجداول (users, stores, invoices, sessions, ...)
   schemas/     Pydantic (شكل الطلبات/الردود)
-  api/routes/  نقاط الـAPI
-  services/    منطق تنسيق العمليات (هيُبنى بالمرحلة 1)
-  core_logic/  منطق العمل المنقول من الأداة الأصلية (هيُبنى بالمرحلة 1)
-alembic/       هجرات قاعدة البيانات
+  api/routes/  نقاط الـAPI — راجع القائمة الكاملة تحت
+  services/    منطق تنسيق العمليات (DB + orchestration)
+  core_logic/  منطق العمل المنقول من الأداة الأصلية — دوال نصية بحتة، بلا أي DB،
+               قابلة للاختبار بمعزل (base_cleaner, categorizer, reconciliation,
+               invoice_calc, alsahl_export, excel_extractor, validators)
+alembic/       هجرات قاعدة البيانات (تشمل هجرة بيانات تبذر 32 تصنيف/165 كلمة مفتاحية)
 ```
+
+الفصل المتعمَّد بين `core_logic/` و`services/`: كل ملف بـ`core_logic/` دالة نصية/حسابية
+بحتة (نص أو DataFrame في المدخل، نص أو رقم بالمخرج) بدون أي اتصال قاعدة بيانات — نفس
+منطق الأداة الأصلية حرفياً أو شبه حرفي. `services/` هي طبقة التنسيق اللي تقرأ/تكتب
+DB وتستدعي `core_logic/` — بهذا منطق العمل يبقى قابل للاختبار بمعزل عن أي DB حقيقية.
+
+## خط أنابيب الفاتورة — نقاط الـAPI
+
+كل نقطة محمية بتوكن JWT (`Authorization: Bearer <token>`) إلا `/auth/login`.
+
+```
+POST   /auth/login                                     تسجيل دخول → JWT
+GET    /auth/me                                         بيانات المستخدم الحالي
+
+GET/POST  /stores                                       المتاجر
+GET/POST  /suppliers                                     الموردون
+
+POST   /stores/{store_id}/invoices                       رفع فاتورة (xlsx/xls)
+GET    /stores/{store_id}/invoices                        فواتير المتجر
+GET    /invoices/{id}                                      بيانات فاتورة واحدة
+POST   /invoices/{id}/clean                                 تنظيف + تصنيف تلقائي → invoice_items
+GET    /invoices/{id}/items                                  أصناف الفاتورة
+PATCH  /invoices/{id}/items/{item_id}                          تعديل صنف يدوياً
+
+POST   /invoices/{id}/session                                   إنشاء جلسة استلام
+GET    /sessions/{id}                                             حالة الجلسة + الأصناف
+PATCH  /sessions/{id}/items/{item_id}                               تعبئة باركود/صلاحية/سعر
+POST   /sessions/{id}/complete                                       إكمال + تفعيل التسوية تلقائياً
+
+GET    /invoices/{id}/reconciliation-matches                          تطابقات التسوية
+POST   /reconciliation-matches/{id}/decide                              قرار: approve|reject|manual
+
+POST   /invoices/{id}/merge                                               دمج بالمخزون + تعلّم الفهرس المشترك
+
+POST   /invoices/{id}/export                                               توليد ملف Alsahl (أرشيف كامل)
+GET    /invoices/{id}/export/download                                      تنزيل آخر تصدير
+```
+
+**دورة حياة الفاتورة (`Invoice.status`):**
+`uploaded → cleaned → session_pending → session_complete → reconciled → merged → exported`
+
+كل انتقال يصير بفعل صريح (نقطة API واحدة)، ولا مرحلة تُتخطى — نقطة التسوية والدمج
+والتصدير كلها ترفض 422 لو الفاتورة لسا ما وصلت المرحلة المطلوبة.
+
+## قرارات تصميم محفوظة من الأداة الأصلية
+
+- **الباركود هو مرساة الهوية** بالتسوية — الاسم يتغير بصيغ كثيرة حسب المورد، الباركود لأ.
+- **ولا تطابق تسوية يُطبَّق تلقائياً**، مهما كانت نسبة التشابه — دايماً بانتظار قرار بشري
+  صريح (`approve`/`reject`/`manual`) عبر `POST /reconciliation-matches/{id}/decide`.
+- **`per_box` (عدد القطع بالعبوة) يبقى `NULL` صراحة لو غير معروف من الفاتورة** — أبداً
+  قيمة افتراضية 1 ملفّقة توهم إنها بيانات حقيقية (بق حقيقي انصلح بالأداة الأصلية).
+- **`product_catalog` فهرس مشترك بين كل المتاجر**، يتراكم تلقائياً من كل فاتورة تُدمج —
+  لكن التسمية الأولى بس تتراكم بلا شرط؛ إعادة تسمية باركود موجود أصلاً لازم تمر عبر
+  التسوية (موافقة بشرية)، أبداً استبدال صامت.
+- **`inventory_lots` فريد بـ(متجر، باركود، صلاحية)** — نفس صنف بصلاحيات مختلفة (دفعات
+  وصول مختلفة) يبقى صفوف منفصلة عمداً؛ upsert بقاعدة "آخر فاتورة تحل محل بيانات نفس
+  اللوت بالكامل" (`ON CONFLICT ... DO UPDATE`).
