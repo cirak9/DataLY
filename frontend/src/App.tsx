@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import Stores from "./pages/Stores";
 import Invoices from "./pages/Invoices";
 import InvoiceReview from "./pages/InvoiceReview";
+import InvoiceSession from "./pages/InvoiceSession";
 import ComingSoon from "./components/ComingSoon";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -37,7 +38,7 @@ function Routed() {
       />
       <Route
         path="/invoices/:invoiceId/session"
-        element={<ProtectedRoute><ComingSoon title="جلسة استلام التاجر" /></ProtectedRoute>}
+        element={<ProtectedRoute><InvoiceSession /></ProtectedRoute>}
       />
       <Route
         path="/invoices/:invoiceId/reconciliation"

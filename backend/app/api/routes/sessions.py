@@ -40,6 +40,15 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
     return _get_session_or_404(db, session_id)
 
 
+@router.get("/invoices/{invoice_id}/session", response_model=SessionOut)
+def get_session_by_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    _get_invoice_or_404(db, invoice_id)
+    session = db.query(IntakeSession).filter(IntakeSession.invoice_id == invoice_id).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ما فيه جلسة استلام لهذي الفاتورة بعد")
+    return session
+
+
 @router.patch("/sessions/{session_id}/items/{item_id}", response_model=SessionOut)
 def update_session_item(
     session_id: int, item_id: int, payload: SessionItemUpdate, db: Session = Depends(get_db)

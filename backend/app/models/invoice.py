@@ -37,7 +37,9 @@ class Invoice(Base):
 
     __table_args__ = (CheckConstraint("method IN (1, 2)", name="ck_invoice_method"),)
 
-    items: Mapped[list["InvoiceItem"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
+    items: Mapped[list["InvoiceItem"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan", order_by="InvoiceItem.item_order"
+    )
 
 
 class InvoiceItem(Base):

@@ -22,7 +22,9 @@ class IntakeSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    items: Mapped[list["SessionItem"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    items: Mapped[list["SessionItem"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", order_by="SessionItem.id"
+    )
     invoice: Mapped["Invoice"] = relationship(lazy="joined")
 
 
