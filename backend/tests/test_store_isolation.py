@@ -412,3 +412,39 @@ def test_uploading_with_unsupported_extension_still_passes_ownership_check(two_o
         headers=_auth(d["token_a"]),
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# الموردون — عكس كل ما سبق تماماً: /suppliers مشترك عمداً بين كل الحسابات، بلا
+# owner_id إطلاقاً (راجع app/models/store.py وbackend/README.md — نفس فلسفة
+# product_catalog/التصنيفات: فهرس عام، مو بيانات تجارية خاصة بمتجر). الاختبارات
+# هون تثبّت هذا القرار كسلوك متوقَّع ومحمي من رجوع خطأ يضيف عزل غير مقصود له
+# مستقبلاً — مو ثغرة، تصميم صريح.
+# ---------------------------------------------------------------------------
+
+def test_supplier_created_by_one_owner_is_visible_to_another(two_owners):
+    d = two_owners
+    created = client.post(
+        "/suppliers", json={"name": "مورد مشترك بين المتاجر"}, headers=_auth(d["token_a"])
+    )
+    assert created.status_code == 201
+    supplier_id = created.json()["id"]
+
+    listed_by_b = client.get("/suppliers", headers=_auth(d["token_b"])).json()
+    assert any(s["id"] == supplier_id for s in listed_by_b)
+
+
+def test_creating_same_supplier_name_twice_returns_the_same_row(two_owners):
+    d = two_owners
+    first = client.post(
+        "/suppliers", json={"name": "مورد مكرر"}, headers=_auth(d["token_a"])
+    ).json()
+    second = client.post(
+        "/suppliers", json={"name": "مورد مكرر"}, headers=_auth(d["token_b"])
+    ).json()
+    assert first["id"] == second["id"]
+
+
+def test_suppliers_endpoints_require_auth():
+    assert client.get("/suppliers").status_code == 401
+    assert client.post("/suppliers", json={"name": "بدون تسجيل دخول"}).status_code == 401
