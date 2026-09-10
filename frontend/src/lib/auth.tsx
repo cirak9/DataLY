@@ -3,7 +3,8 @@ import { api } from "./api";
 
 interface AuthContextValue {
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
+  register: (storeName: string, phoneNumber: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -14,8 +15,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => !!localStorage.getItem("dataly_token")
   );
 
-  async function login(email: string, password: string) {
-    const { data } = await api.post("/auth/login", { email, password });
+  async function login(identifier: string, password: string) {
+    const { data } = await api.post("/auth/login", { identifier, password });
+    localStorage.setItem("dataly_token", data.access_token);
+    setIsAuthenticated(true);
+  }
+
+  async function register(storeName: string, phoneNumber: string, password: string) {
+    const { data } = await api.post("/auth/register", {
+      store_name: storeName,
+      phone_number: phoneNumber,
+      password,
+    });
     localStorage.setItem("dataly_token", data.access_token);
     setIsAuthenticated(true);
   }
@@ -26,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

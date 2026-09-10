@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./lib/auth";
 import Login from "./pages/Login";
+import Register from "./pages/Register";
 import Stores from "./pages/Stores";
 import Invoices from "./pages/Invoices";
 import InvoiceReview from "./pages/InvoiceReview";
@@ -20,6 +21,7 @@ function Routed() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
 
       <Route path="/stores" element={<ProtectedRoute><Stores /></ProtectedRoute>} />
       <Route
