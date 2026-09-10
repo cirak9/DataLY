@@ -14,6 +14,7 @@ from app.core.security import hash_password
 from app.main import app
 from app.models.export import AlsahlExport
 from app.models.invoice import Invoice, InvoiceItem
+from app.models.inventory import InventoryLot
 from app.models.reconciliation import ReconciliationMatch
 from app.models.session import IntakeSession, SessionItem
 from app.models.store import Store
@@ -24,23 +25,26 @@ from app.models.user import User
 ضد Supabase الحقيقية (حساب demo@dataly.app مقابل الحساب الإداري) كاختبارات آلية،
 ويغطّي بعدها بقية دوال get_owned_* بـapp/api/deps.py اللي ما اتحققت حياً وقتها
 (الجلسة وتسوية الأصناف — أعمق سلسلة join بالنظام كله: تطابق → صنف فاتورة → فاتورة
-→ متجر). كل مستخدم يشوف متجره بس، وأي محاولة وصول مباشر (متجر أو فاتورة أو جلسة
-أو تطابق تسوية) لبيانات مستخدم ثاني ترجع 404 — لا 403، عشان ما نسرّب حتى معلومة
-وجود الـID.
+→ متجر)، وباقي نقاط الـAPI المتفرعة من متجر (دمج، تصدير، تنزيل، مخزون). كل مستخدم
+يشوف بياناته بس، وأي محاولة وصول مباشر لبيانات مستخدم ثاني ترجع 404 — لا 403،
+عشان ما نسرّب حتى معلومة وجود الـID.
 
-قاعدة بيانات SQLite بالذاكرة، باستثناء جدول inventory_lots — فهرسه الفريد يستخدم
-تعبير COALESCE/DATE خاص بـPostgres (راجع app/models/inventory.py) مو مدعوم بـSQLite،
-واختبارات العزل هون ما تحتاج جدول المخزون أصلاً (تغطي مستوى المتجر والفاتورة فقط،
-نفس نطاق التحقق الحي اللي صار).
+قاعدة بيانات SQLite بالذاكرة. جدول inventory_lots يُنشأ بدون فهرسه الفريد المركّب
+(يستخدم تعبير COALESCE/DATE خاص بـPostgres، راجع app/models/inventory.py، مو مدعوم
+بـSQLite) — اختبارات العزل هون ما تحتاج قيد التفرّد نفسه، بس تحتاج الجدول موجود
+لاختبار مسار الوصول الناجح لصاحب المتجر.
 """
 
 engine = create_engine(
     "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
 )
 TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-Base.metadata.create_all(
-    bind=engine, tables=[t for t in Base.metadata.sorted_tables if t.name != "inventory_lots"]
-)
+
+_inventory_lots_table = Base.metadata.tables["inventory_lots"]
+_pg_only_index = next(ix for ix in _inventory_lots_table.indexes if ix.name == "ux_inventory_lot")
+_inventory_lots_table.indexes.discard(_pg_only_index)
+
+Base.metadata.create_all(bind=engine)
 
 
 def _override_get_db():
@@ -121,6 +125,11 @@ def two_owners():
         db.commit()
         db.refresh(export_a)
 
+        lot_a = InventoryLot(store_id=store_a.id, barcode="TESTLOT001", item_name="صنف مخزون أ", quantity=5)
+        db.add(lot_a)
+        db.commit()
+        db.refresh(lot_a)
+
         token_a = client.post(
             "/auth/login", json={"email": user_a.email, "password": "pass-a-123"}
         ).json()["access_token"]
@@ -141,13 +150,13 @@ def two_owners():
             "session_item_b": session_item_b.id,
             "match_a": match_a.id,
             "match_b": match_b.id,
+            "lot_a": lot_a.id,
             "token_a": token_a,
             "token_b": token_b,
         }
     finally:
         for table in reversed(Base.metadata.sorted_tables):
-            if table.name != "inventory_lots":
-                db.execute(table.delete())
+            db.execute(table.delete())
         db.commit()
         db.close()
 
@@ -343,3 +352,22 @@ def test_can_download_own_export(two_owners):
     assert resp.headers["content-type"] == (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+
+# ---------------------------------------------------------------------------
+# المخزون — get_owned_store مباشرة (نفس دالة GET /stores/{id})، بس مسار/جدول مختلف
+# ---------------------------------------------------------------------------
+
+def test_cannot_list_inventory_of_other_owners_store(two_owners):
+    d = two_owners
+    resp = client.get(f"/stores/{d['store_b']}/inventory", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+def test_can_list_own_store_inventory(two_owners):
+    d = two_owners
+    resp = client.get(f"/stores/{d['store_a']}/inventory", headers=_auth(d["token_a"]))
+    assert resp.status_code == 200
+    lots = resp.json()
+    assert len(lots) == 1
+    assert lots[0]["id"] == d["lot_a"]
