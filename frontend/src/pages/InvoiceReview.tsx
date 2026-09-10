@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { Invoice, InvoiceItem } from "../lib/types";
 import Layout from "../components/Layout";
+import OldInventoryPrompt from "../components/OldInventoryPrompt";
 import StatusBadge from "../components/StatusBadge";
 
 function EditableCell({
@@ -39,6 +40,7 @@ export default function InvoiceReview() {
   const queryClient = useQueryClient();
   const [cleanError, setCleanError] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [showInventoryPrompt, setShowInventoryPrompt] = useState(false);
 
   const { data: invoice } = useQuery({
     queryKey: ["invoice", invoiceId],
@@ -101,7 +103,7 @@ export default function InvoiceReview() {
           </button>
         ) : (
           <button
-            onClick={() => startSession.mutate()}
+            onClick={() => setShowInventoryPrompt(true)}
             disabled={startSession.isPending || invoice.status !== "cleaned"}
             className="self-start rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60 sm:self-auto"
           >
@@ -109,6 +111,16 @@ export default function InvoiceReview() {
           </button>
         )}
       </div>
+
+      {showInventoryPrompt && (
+        <OldInventoryPrompt
+          storeId={invoice.store_id}
+          onProceed={() => {
+            setShowInventoryPrompt(false);
+            startSession.mutate();
+          }}
+        />
+      )}
 
       {cleanError && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

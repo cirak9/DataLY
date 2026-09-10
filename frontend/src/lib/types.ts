@@ -107,6 +107,11 @@ export interface InventoryLot {
   updated_at: string;
 }
 
+export interface InventoryImportResult {
+  rows_read: number;
+  lots_processed: number;
+}
+
 export const STATUS_LABELS: Record<InvoiceStatus, string> = {
   uploaded: "مرفوعة",
   cleaned: "منظّفة",
