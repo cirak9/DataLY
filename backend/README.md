@@ -18,6 +18,15 @@ JWT_SECRET=<سلسلة عشوائية طويلة>
 CORS_ORIGINS=["https://<رابط-الواجهة-على-Vercel>"]
 ```
 
+**⚠️ الهجرات (migrations) ما تُطبَّق تلقائياً — لازم يدوياً بعد كل نشرة تغيّر الجدول:**
+خدمة Render المجانية ما تدعم Pre-Deploy Command (ميزة مدفوعة)، فـ`alembic upgrade
+head` مو جزء من الـStart Command. أي هجرة جديدة تحتاج تشغيل يدوي مرة وحدة بعد
+النشر: انسخ `DATABASE_URL` من Environment بلوحة Render، وشغّل محلياً من `backend/`:
+```
+$env:DATABASE_URL = "<القيمة المنسوخة>"   # PowerShell
+python -m alembic upgrade head
+```
+
 **قرار تصميم مهم — التنزيل يُعاد بناؤه من قاعدة البيانات، مو من القرص:** قرص Render
 المجاني مؤقت (ينمسح بإعادة النشر/إعادة التشغيل). في البداية كان `GET
 /invoices/{id}/export/download` يقرأ ملف `.xlsx` محفوظ على القرص وقت التصدير — لما
