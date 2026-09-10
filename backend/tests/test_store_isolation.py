@@ -371,3 +371,44 @@ def test_can_list_own_store_inventory(two_owners):
     lots = resp.json()
     assert len(lots) == 1
     assert lots[0]["id"] == d["lot_a"]
+
+
+# ---------------------------------------------------------------------------
+# رفع فاتورة — get_owned_store أيضاً، بس هون قبل ما يوصل الطلب لجسم الدالة أصلاً
+# (الملف نفسه محتاج يكون موجود بالطلب عشان FastAPI يقبل الشكل، بس save_uploaded_invoice
+# ما تُستدعى إطلاقاً لو الملكية فشلت — نفس ترتيب باقي نقاط get_owned_invoice).
+# ---------------------------------------------------------------------------
+
+def test_cannot_upload_invoice_to_other_owners_store(two_owners):
+    d = two_owners
+    resp = client.post(
+        f"/stores/{d['store_b']}/invoices",
+        files={"file": ("fake.xlsx", b"not a real workbook", "application/octet-stream")},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 404
+
+
+def test_can_upload_invoice_to_own_store(two_owners):
+    d = two_owners
+    resp = client.post(
+        f"/stores/{d['store_a']}/invoices",
+        files={"file": ("fake.xlsx", b"not a real workbook", "application/octet-stream")},
+        headers=_auth(d["token_a"]),
+    )
+    # save_uploaded_invoice يتحقق من امتداد الملف بس بهالمرحلة (التحليل الفعلي بخطوة
+    # /clean منفصلة) — 201 نجاح كامل يثبت وصول الملكية والحفظ، مو مجرد تجاوز 404.
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "uploaded"
+
+
+def test_uploading_with_unsupported_extension_still_passes_ownership_check(two_owners):
+    """امتداد مرفوض (422) لا 404 — يثبت إن رفض الملكية مو السبب حتى بمسار الخطأ."""
+    d = two_owners
+    resp = client.post(
+        f"/stores/{d['store_a']}/invoices",
+        files={"file": ("fake.txt", b"not excel at all", "text/plain")},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 422
