@@ -1,24 +1,32 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_owned_store
 from app.core.db import get_db
 from app.models.store import Store, Supplier
+from app.models.user import User
 from app.schemas.store import StoreCreate, StoreOut, SupplierCreate, SupplierOut
 
 router = APIRouter(tags=["stores"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/stores", response_model=list[StoreOut])
-def list_stores(db: Session = Depends(get_db)):
-    return db.query(Store).order_by(Store.name).all()
+def list_stores(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return (
+        db.query(Store)
+        .filter(Store.owner_id == current_user.id)
+        .order_by(Store.name)
+        .all()
+    )
 
 
 @router.post("/stores", response_model=StoreOut, status_code=status.HTTP_201_CREATED)
-def create_store(payload: StoreCreate, db: Session = Depends(get_db)):
+def create_store(
+    payload: StoreCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     if db.query(Store).filter(Store.code == payload.code).first():
         raise HTTPException(status_code=400, detail="كود المتجر مستخدم مسبقاً")
-    store = Store(name=payload.name, code=payload.code)
+    store = Store(name=payload.name, code=payload.code, owner_id=current_user.id)
     db.add(store)
     db.commit()
     db.refresh(store)
@@ -26,10 +34,7 @@ def create_store(payload: StoreCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/stores/{store_id}", response_model=StoreOut)
-def get_store(store_id: int, db: Session = Depends(get_db)):
-    store = db.get(Store, store_id)
-    if not store:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="المتجر غير موجود")
+def get_store(store: Store = Depends(get_owned_store)):
     return store
 
 

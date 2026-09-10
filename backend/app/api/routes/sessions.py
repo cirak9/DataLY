@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_owned_invoice, get_owned_session
 from app.core.db import get_db
 from app.models.invoice import Invoice
 from app.models.session import IntakeSession
@@ -12,23 +12,8 @@ from app.services.session_service import SessionValidationError
 router = APIRouter(tags=["sessions"], dependencies=[Depends(get_current_user)])
 
 
-def _get_invoice_or_404(db: Session, invoice_id: int) -> Invoice:
-    invoice = db.get(Invoice, invoice_id)
-    if not invoice:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="الفاتورة غير موجودة")
-    return invoice
-
-
-def _get_session_or_404(db: Session, session_id: int) -> IntakeSession:
-    session = db.get(IntakeSession, session_id)
-    if not session:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="جلسة الاستلام غير موجودة")
-    return session
-
-
 @router.post("/invoices/{invoice_id}/session", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
-def create_session(invoice_id: int, db: Session = Depends(get_db)):
-    invoice = _get_invoice_or_404(db, invoice_id)
+def create_session(invoice: Invoice = Depends(get_owned_invoice), db: Session = Depends(get_db)):
     try:
         return session_service.create_session(db, invoice)
     except SessionValidationError as e:
@@ -36,14 +21,13 @@ def create_session(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}", response_model=SessionOut)
-def get_session(session_id: int, db: Session = Depends(get_db)):
-    return _get_session_or_404(db, session_id)
+def get_session(session: IntakeSession = Depends(get_owned_session)):
+    return session
 
 
 @router.get("/invoices/{invoice_id}/session", response_model=SessionOut)
-def get_session_by_invoice(invoice_id: int, db: Session = Depends(get_db)):
-    _get_invoice_or_404(db, invoice_id)
-    session = db.query(IntakeSession).filter(IntakeSession.invoice_id == invoice_id).first()
+def get_session_by_invoice(invoice: Invoice = Depends(get_owned_invoice), db: Session = Depends(get_db)):
+    session = db.query(IntakeSession).filter(IntakeSession.invoice_id == invoice.id).first()
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ما فيه جلسة استلام لهذي الفاتورة بعد")
     return session
@@ -51,9 +35,11 @@ def get_session_by_invoice(invoice_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/sessions/{session_id}/items/{item_id}", response_model=SessionOut)
 def update_session_item(
-    session_id: int, item_id: int, payload: SessionItemUpdate, db: Session = Depends(get_db)
+    item_id: int,
+    payload: SessionItemUpdate,
+    session: IntakeSession = Depends(get_owned_session),
+    db: Session = Depends(get_db),
 ):
-    session = _get_session_or_404(db, session_id)
     try:
         session_service.update_session_item(db, session, item_id, payload.model_dump(exclude_unset=True))
     except SessionValidationError as e:
@@ -63,8 +49,7 @@ def update_session_item(
 
 
 @router.post("/sessions/{session_id}/complete", response_model=SessionOut)
-def complete_session(session_id: int, db: Session = Depends(get_db)):
-    session = _get_session_or_404(db, session_id)
+def complete_session(session: IntakeSession = Depends(get_owned_session), db: Session = Depends(get_db)):
     try:
         return session_service.complete_session(db, session)
     except SessionValidationError as e:
