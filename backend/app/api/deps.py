@@ -25,10 +25,14 @@ def get_current_user(
     )
     if not token:
         raise unauthorized
-    email = decode_access_token(token)
-    if not email:
+    subject = decode_access_token(token)
+    if not subject:
         raise unauthorized
-    user = db.query(User).filter(User.email == email).first()
+    try:
+        user_id = int(subject)
+    except ValueError:
+        raise unauthorized
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise unauthorized
     return user

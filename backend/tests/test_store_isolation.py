@@ -131,10 +131,10 @@ def two_owners():
         db.refresh(lot_a)
 
         token_a = client.post(
-            "/auth/login", json={"email": user_a.email, "password": "pass-a-123"}
+            "/auth/login", json={"identifier": user_a.email, "password": "pass-a-123"}
         ).json()["access_token"]
         token_b = client.post(
-            "/auth/login", json={"email": user_b.email, "password": "pass-b-123"}
+            "/auth/login", json={"identifier": user_b.email, "password": "pass-b-123"}
         ).json()["access_token"]
 
         yield {
@@ -497,3 +497,85 @@ def test_importing_unsupported_file_type_passes_ownership_check(two_owners):
         headers=_auth(d["token_a"]),
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# تسجيل تاجر ذاتي — رقم هاتف بدل بريد إلكتروني، ودخول تلقائي بتوكن جاهز فوراً.
+# ---------------------------------------------------------------------------
+
+def test_register_creates_user_and_owned_store_with_auto_login():
+    resp = client.post("/auth/register", json={
+        "store_name": "بقالة الأمل",
+        "phone_number": "0912345678",
+        "password": "secret123",
+    })
+    assert resp.status_code == 201
+    token = resp.json()["access_token"]
+    assert token
+
+    stores = client.get("/stores", headers=_auth(token)).json()
+    assert len(stores) == 1
+    assert stores[0]["name"] == "بقالة الأمل"
+
+
+def test_registered_merchant_can_login_with_phone_number():
+    client.post("/auth/register", json={
+        "store_name": "متجر تسجيل الدخول",
+        "phone_number": "0923456789",
+        "password": "secret123",
+    })
+    resp = client.post("/auth/login", json={"identifier": "0923456789", "password": "secret123"})
+    assert resp.status_code == 200
+    assert resp.json()["access_token"]
+
+
+def test_cannot_register_same_phone_number_twice():
+    payload = {"store_name": "متجر أول", "phone_number": "0934567890", "password": "secret123"}
+    assert client.post("/auth/register", json=payload).status_code == 201
+    payload["store_name"] = "متجر ثاني بنفس الرقم"
+    resp = client.post("/auth/register", json=payload)
+    assert resp.status_code == 400
+
+
+def test_register_rejects_short_password():
+    resp = client.post("/auth/register", json={
+        "store_name": "متجر", "phone_number": "0945678901", "password": "123",
+    })
+    assert resp.status_code == 422
+
+
+def test_register_rejects_blank_store_name():
+    resp = client.post("/auth/register", json={
+        "store_name": "   ", "phone_number": "0956789012", "password": "secret123",
+    })
+    assert resp.status_code == 422
+
+
+def test_login_with_wrong_password_after_register_fails():
+    client.post("/auth/register", json={
+        "store_name": "متجر كلمة سر غلط", "phone_number": "0967890123", "password": "secret123",
+    })
+    resp = client.post("/auth/login", json={"identifier": "0967890123", "password": "WRONG"})
+    assert resp.status_code == 401
+
+
+def test_two_merchants_registering_separately_cannot_see_each_others_store():
+    """تأكيد إضافي: التسجيل الذاتي يحترم نفس عزل الملكية — مو مسار جانبي يتفاداه."""
+    a = client.post("/auth/register", json={
+        "store_name": "متجر التاجر الأول", "phone_number": "0978901234", "password": "secret123",
+    }).json()
+    b = client.post("/auth/register", json={
+        "store_name": "متجر التاجر الثاني", "phone_number": "0989012345", "password": "secret123",
+    }).json()
+
+    store_a_id = client.get("/stores", headers=_auth(a["access_token"])).json()[0]["id"]
+    resp = client.get(f"/stores/{store_a_id}", headers=_auth(b["access_token"]))
+    assert resp.status_code == 404
+
+
+def test_existing_email_based_login_still_works_after_auth_changes(two_owners):
+    """يتأكد إن تغيير آلية الدخول (identifier بدل email) ما كسر حسابات البريد الحالية."""
+    d = two_owners
+    resp = client.get("/auth/me", headers=_auth(d["token_a"]))
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "owner-a@dataly-isolation-test.com"
