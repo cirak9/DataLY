@@ -32,19 +32,45 @@ const CONFIDENCE_LABEL: Record<Confidence, string> = {
   low: "تحتاج مراجعة",
 };
 
+// ألوان مصمَتة عالية التباين بدل الباستيل — الهدف إنها تُلتقط بنظرة عابرة
+// على جدول مزدحم، مو بس عند التركيز عليها.
 const CONFIDENCE_STYLE: Record<Confidence, string> = {
-  high: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  medium: "bg-amber-50 text-amber-700 border-amber-200",
-  low: "bg-red-50 text-red-700 border-red-200",
+  high: "bg-emerald-600 text-white",
+  medium: "bg-amber-500 text-white",
+  low: "bg-red-600 text-white",
+};
+
+const CONFIDENCE_ICON: Record<Confidence, string> = {
+  high: "✓",
+  medium: "◐",
+  low: "⚠",
 };
 
 function ConfidenceBadge({ level }: { level: Confidence }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${CONFIDENCE_STYLE[level]}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${CONFIDENCE_STYLE[level]}`}>
+      <span>{CONFIDENCE_ICON[level]}</span>
       {CONFIDENCE_LABEL[level]}
     </span>
   );
 }
+
+// صور إضافية وهمية تُضاف عند "أضف صورة" — تحاكي دمج أكثر من صورة فاتورة واحدة
+// بنفس المراجعة (نفس المشكلة الحقيقية: التاجر ياخذ عدة صور لفاتورة طويلة).
+const EXTRA_IMAGE_POOL: Omit<OcrCandidateItem, "id" | "sourceImage">[][] = [
+  [
+    { itemName: "زيت زيتون 1 لتر", quantity: 8, unitCost: 15, barcode: "6221031202040", confidence: "high" },
+    { itemName: "خل تفاح 500مل", quantity: 15, unitCost: 3.25, barcode: "", confidence: "medium" },
+  ],
+  [
+    { itemName: "طحين أبيض كيس 1كغ", quantity: 30, unitCost: 2.1, barcode: "6221031202057", confidence: "high" },
+    { itemName: "ملح طعام 500غ", quantity: 20, unitCost: 1, barcode: "", confidence: "low" },
+  ],
+  [
+    { itemName: "حليب مجفف 400غ", quantity: 12, unitCost: 9.4, barcode: "6221031202064", confidence: "high" },
+    { itemName: "قهوة تركية 200غ", quantity: 9, unitCost: 7.8, barcode: "", confidence: "medium" },
+  ],
+];
 
 let nextId = 1000;
 
@@ -52,9 +78,23 @@ export default function OcrReviewPreview() {
   const [items, setItems] = useState<OcrCandidateItem[]>(SAMPLE_ITEMS);
   const [confirmed, setConfirmed] = useState(false);
 
-  const imageCount = useMemo(() => new Set(items.map((i) => i.sourceImage)).size, [items]);
+  const imageNumbers = useMemo(
+    () => Array.from(new Set(items.map((i) => i.sourceImage).filter((n) => n > 0))).sort((a, b) => a - b),
+    [items]
+  );
   const totalValue = useMemo(() => items.reduce((sum, i) => sum + i.quantity * i.unitCost, 0), [items]);
   const lowConfidenceCount = items.filter((i) => i.confidence === "low").length;
+
+  function addImage() {
+    const nextImage = imageNumbers.length ? Math.max(...imageNumbers) + 1 : 1;
+    const pool = EXTRA_IMAGE_POOL[(nextImage - 1) % EXTRA_IMAGE_POOL.length];
+    const newItems = pool.map((base) => ({ ...base, id: nextId++, sourceImage: nextImage }));
+    setItems((prev) => [...prev, ...newItems]);
+  }
+
+  function removeImage(imageNumber: number) {
+    setItems((prev) => prev.filter((i) => i.sourceImage !== imageNumber));
+  }
 
   function updateField(id: number, field: keyof OcrCandidateItem, value: string) {
     setItems((prev) =>
@@ -99,7 +139,8 @@ export default function OcrReviewPreview() {
       <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         🧪 معاينة تصميم — الأصناف تحت بيانات تجريبية تحاكي شكل مخرجات OCR، مو من فاتورة
         حقيقية. هالشاشة بتُربط بخدمة استخراج النص (Tesseract) لما تُفعَّل بنيتها التحتية؛
-        الهدف الآن اختبار تجربة المراجعة والتعديل قبل الاعتماد.
+        الهدف الآن اختبار تجربة المراجعة والتعديل قبل الاعتماد — جرّب "أضف صورة" تحت
+        عشان تشوف كيف تنضم أصناف صورة ثانية لنفس المراجعة (دمج عدة صور بفاتورة واحدة).
       </div>
 
       {confirmed ? (
@@ -119,8 +160,33 @@ export default function OcrReviewPreview() {
         </div>
       ) : (
         <>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="ml-1 text-xs font-medium text-slate-500">صور الفاتورة:</span>
+            {imageNumbers.map((num) => (
+              <span
+                key={num}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600"
+              >
+                📷 صورة {num}
+                <button
+                  onClick={() => removeImage(num)}
+                  className="text-slate-300 transition hover:text-red-500"
+                  aria-label={`إزالة صورة ${num}`}
+                  title="إزالة هالصورة وكل الأصناف المستخرجة منها"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            <button
+              onClick={addImage}
+              className="rounded-full border border-dashed border-brand-300 px-3 py-1 text-xs font-semibold text-brand-600 transition hover:border-brand-500 hover:bg-brand-50"
+            >
+              + أضف صورة
+            </button>
+          </div>
+
           <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-            <span className="rounded-full bg-slate-100 px-3 py-1">📷 {imageCount} صورة مصدر</span>
             <span className="rounded-full bg-slate-100 px-3 py-1">{items.length} صنف</span>
             {lowConfidenceCount > 0 && (
               <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-red-700">
