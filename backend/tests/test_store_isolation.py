@@ -448,3 +448,52 @@ def test_creating_same_supplier_name_twice_returns_the_same_row(two_owners):
 def test_suppliers_endpoints_require_auth():
     assert client.get("/suppliers").status_code == 401
     assert client.post("/suppliers", json={"name": "بدون تسجيل دخول"}).status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# استيراد المخزون القديم — get_owned_store، نفس نمط رفع الفاتورة تماماً.
+#
+# ملاحظة مهمة: نجاح كامل (201 + upsert حقيقي بـinventory_lots) ما يُختبر هون —
+# استعلام الـupsert (نفس اللي بـmerge_service.py أصلاً) يستخدم صياغة SQL خاصة
+# بـPostgres (ON CONFLICT مع COALESCE/DATE) ما تشتغل على SQLite، فنفس القيد
+# الموجود أصلاً على اختبارات الدمج (merge) ينطبق هنا. الفحص الوحيد الممكن محلياً
+# هو حدود الملكية (404/422 قبل ما يوصل الطلب للـSQL) — النجاح الكامل يتحقق منه
+# حياً ضد Supabase الحقيقية، ومنطق الاستخراج/كشف الأعمدة له اختبارات مستقلة
+# بدون قاعدة بيانات إطلاقاً بـtest_inventory_extractor.py.
+# ---------------------------------------------------------------------------
+
+def _make_old_inventory_xlsx(rows: list[tuple]) -> bytes:
+    import io
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["الباركود", "اسم الصنف", "الصلاحية", "الكمية"])
+    for row in rows:
+        ws.append(list(row))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_cannot_import_inventory_to_other_owners_store(two_owners):
+    d = two_owners
+    content = _make_old_inventory_xlsx([("TESTIMP001", "صنف مستورد", "2027-01-01", 10)])
+    resp = client.post(
+        f"/stores/{d['store_b']}/inventory/import",
+        files={"file": ("old_inventory.xlsx", content, "application/octet-stream")},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 404
+
+
+def test_importing_unsupported_file_type_passes_ownership_check(two_owners):
+    """امتداد مرفوض (422) لا 404 — نفس نمط التفريق المعتمد بباقي رفع الملفات
+    (يتحقق قبل ما يوصل الطلب لاستعلام الـSQL الخاص بـPostgres أصلاً)."""
+    d = two_owners
+    resp = client.post(
+        f"/stores/{d['store_a']}/inventory/import",
+        files={"file": ("old_inventory.csv", b"barcode,name\n123,test", "text/csv")},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 422

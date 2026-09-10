@@ -13,3 +13,8 @@ class InventoryLotOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class InventoryImportResult(BaseModel):
+    rows_read: int
+    lots_processed: int
