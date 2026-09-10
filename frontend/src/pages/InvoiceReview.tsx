@@ -158,8 +158,15 @@ export default function InvoiceReview() {
                 </p>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="rounded-lg bg-slate-50 py-2">
-                    <div className="text-slate-400">الكمية</div>
-                    <div className="mt-0.5 font-mono text-ink">{item.quantity_pieces}</div>
+                    <div className="mb-0.5 text-slate-400">الكمية</div>
+                    <input
+                      defaultValue={item.quantity_pieces}
+                      onBlur={(e) => {
+                        if (e.target.value !== String(item.quantity_pieces))
+                          updateItem.mutate({ itemId: item.id, field: "quantity_pieces", value: e.target.value });
+                      }}
+                      className="w-full rounded border border-transparent bg-transparent text-center font-mono text-ink outline-none focus:border-brand-400 focus:bg-white focus:ring-2 focus:ring-brand-100"
+                    />
                   </div>
                   <div className="rounded-lg bg-slate-50 py-2">
                     <div className="text-slate-400">العبوة</div>
@@ -210,8 +217,12 @@ export default function InvoiceReview() {
                     <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
                       {item.category ? `${item.category.main} / ${item.category.sub}` : "—"}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-600">
-                      {item.quantity_pieces}
+                    <td className="min-w-[90px] px-1 py-1">
+                      <EditableCell
+                        value={item.quantity_pieces}
+                        mono
+                        onSave={(v) => updateItem.mutate({ itemId: item.id, field: "quantity_pieces", value: v })}
+                      />
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-600">
                       {item.per_box ?? <span className="text-slate-300">—</span>}

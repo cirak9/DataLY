@@ -47,6 +47,7 @@ class InvoiceItemOut(BaseModel):
 
 class InvoiceItemUpdate(BaseModel):
     item_name: str | None = None
+    quantity_pieces: float | None = None
     unit_cost: float | None = None
     total_price: float | None = None
     barcode: str | None = None
