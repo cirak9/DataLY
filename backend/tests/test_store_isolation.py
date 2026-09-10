@@ -12,15 +12,20 @@ from fastapi.testclient import TestClient
 from app.core.db import Base, get_db
 from app.core.security import hash_password
 from app.main import app
-from app.models.invoice import Invoice
+from app.models.invoice import Invoice, InvoiceItem
+from app.models.reconciliation import ReconciliationMatch
+from app.models.session import IntakeSession, SessionItem
 from app.models.store import Store
 from app.models.user import User
 
 """
 عزل بيانات العملاء — يعيد بالتحديد نفس خطوات التحقق الحي اللي صارت يدوياً بـcurl
-ضد Supabase الحقيقية (حساب demo@dataly.app مقابل الحساب الإداري) كاختبارات آلية:
-كل مستخدم يشوف متجره بس، وأي محاولة وصول مباشر (متجر أو فاتورة) لبيانات مستخدم
-ثاني ترجع 404 — لا 403، عشان ما نسرّب حتى معلومة وجود الـID.
+ضد Supabase الحقيقية (حساب demo@dataly.app مقابل الحساب الإداري) كاختبارات آلية،
+ويغطّي بعدها بقية دوال get_owned_* بـapp/api/deps.py اللي ما اتحققت حياً وقتها
+(الجلسة وتسوية الأصناف — أعمق سلسلة join بالنظام كله: تطابق → صنف فاتورة → فاتورة
+→ متجر). كل مستخدم يشوف متجره بس، وأي محاولة وصول مباشر (متجر أو فاتورة أو جلسة
+أو تطابق تسوية) لبيانات مستخدم ثاني ترجع 404 — لا 403، عشان ما نسرّب حتى معلومة
+وجود الـID.
 
 قاعدة بيانات SQLite بالذاكرة، باستثناء جدول inventory_lots — فهرسه الفريد يستخدم
 تعبير COALESCE/DATE خاص بـPostgres (راجع app/models/inventory.py) مو مدعوم بـSQLite،
@@ -79,6 +84,34 @@ def two_owners():
         db.refresh(invoice_a)
         db.refresh(invoice_b)
 
+        item_a = InvoiceItem(invoice_id=invoice_a.id, item_order=1, item_name="صنف أ", quantity_pieces=10)
+        item_b = InvoiceItem(invoice_id=invoice_b.id, item_order=1, item_name="صنف ب", quantity_pieces=10)
+        db.add_all([item_a, item_b])
+        db.commit()
+        db.refresh(item_a)
+        db.refresh(item_b)
+
+        session_a = IntakeSession(invoice_id=invoice_a.id, method=1, status="pending")
+        session_b = IntakeSession(invoice_id=invoice_b.id, method=1, status="pending")
+        db.add_all([session_a, session_b])
+        db.commit()
+        db.refresh(session_a)
+        db.refresh(session_b)
+
+        session_item_a = SessionItem(session_id=session_a.id, invoice_item_id=item_a.id)
+        session_item_b = SessionItem(session_id=session_b.id, invoice_item_id=item_b.id)
+        db.add_all([session_item_a, session_item_b])
+        db.commit()
+        db.refresh(session_item_a)
+        db.refresh(session_item_b)
+
+        match_a = ReconciliationMatch(invoice_item_id=item_a.id, match_method="barcode", decision="pending")
+        match_b = ReconciliationMatch(invoice_item_id=item_b.id, match_method="barcode", decision="pending")
+        db.add_all([match_a, match_b])
+        db.commit()
+        db.refresh(match_a)
+        db.refresh(match_b)
+
         token_a = client.post(
             "/auth/login", json={"email": user_a.email, "password": "pass-a-123"}
         ).json()["access_token"]
@@ -91,6 +124,14 @@ def two_owners():
             "store_b": store_b.id,
             "invoice_a": invoice_a.id,
             "invoice_b": invoice_b.id,
+            "item_a": item_a.id,
+            "item_b": item_b.id,
+            "session_a": session_a.id,
+            "session_b": session_b.id,
+            "session_item_a": session_item_a.id,
+            "session_item_b": session_item_b.id,
+            "match_a": match_a.id,
+            "match_b": match_b.id,
             "token_a": token_a,
             "token_b": token_b,
         }
@@ -158,3 +199,90 @@ def test_new_store_is_owned_by_its_creator(two_owners):
 
     assert client.get(f"/stores/{new_store_id}", headers=_auth(d["token_a"])).status_code == 200
     assert client.get(f"/stores/{new_store_id}", headers=_auth(d["token_b"])).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# جلسة الاستلام — get_owned_session يوصل للمتجر بقفزتين join (جلسة → فاتورة → متجر)
+# ---------------------------------------------------------------------------
+
+def test_cannot_fetch_other_owners_session_by_id(two_owners):
+    d = two_owners
+    resp = client.get(f"/sessions/{d['session_b']}", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+def test_can_fetch_own_session_by_id(two_owners):
+    d = two_owners
+    resp = client.get(f"/sessions/{d['session_a']}", headers=_auth(d["token_a"]))
+    assert resp.status_code == 200
+
+
+def test_cannot_get_session_via_other_owners_invoice(two_owners):
+    d = two_owners
+    resp = client.get(f"/invoices/{d['invoice_b']}/session", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+def test_cannot_patch_other_owners_session_item(two_owners):
+    d = two_owners
+    resp = client.patch(
+        f"/sessions/{d['session_b']}/items/{d['session_item_b']}",
+        json={"barcode": "999", "sale_price": 5.5},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 404
+
+
+def test_can_patch_own_session_item(two_owners):
+    d = two_owners
+    resp = client.patch(
+        f"/sessions/{d['session_a']}/items/{d['session_item_a']}",
+        json={"barcode": "999", "sale_price": 5.5},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 200
+
+
+def test_cannot_complete_other_owners_session(two_owners):
+    d = two_owners
+    resp = client.post(f"/sessions/{d['session_b']}/complete", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# التسوية — get_owned_reconciliation_match يوصل للمتجر بثلاث قفزات join
+# (تطابق → صنف فاتورة → فاتورة → متجر)، أعمق سلسلة بالنظام كله
+# ---------------------------------------------------------------------------
+
+def test_cannot_list_reconciliation_matches_of_other_owners_invoice(two_owners):
+    d = two_owners
+    resp = client.get(f"/invoices/{d['invoice_b']}/reconciliation-matches", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+def test_can_list_own_reconciliation_matches(two_owners):
+    d = two_owners
+    resp = client.get(f"/invoices/{d['invoice_a']}/reconciliation-matches", headers=_auth(d["token_a"]))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_cannot_decide_other_owners_reconciliation_match(two_owners):
+    d = two_owners
+    resp = client.post(
+        f"/reconciliation-matches/{d['match_b']}/decide",
+        json={"decision": "reject"},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 404
+
+
+def test_can_decide_own_reconciliation_match(two_owners):
+    d = two_owners
+    resp = client.post(
+        f"/reconciliation-matches/{d['match_a']}/decide",
+        json={"decision": "reject"},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["decision"] == "rejected"
