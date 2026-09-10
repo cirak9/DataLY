@@ -579,3 +579,76 @@ def test_existing_email_based_login_still_works_after_auth_changes(two_owners):
     resp = client.get("/auth/me", headers=_auth(d["token_a"]))
     assert resp.status_code == 200
     assert resp.json()["email"] == "owner-a@dataly-isolation-test.com"
+
+
+# ---------------------------------------------------------------------------
+# استخراج فاتورة بالصور (OCR) — /stores/{id}/invoices/ocr و/ocr-extract و/ocr-confirm.
+# ANTHROPIC_API_KEY مو مُعدّ باختبارات آلية، فـocr-extract الفعلي (اللي يحتاج مفتاح)
+# ما يُختبر هون؛ الهدف إثبات إن التحقق من الملكية والتحقق من حالة/نوع الفاتورة
+# (404 مقابل 422) يصير قبل أي استدعاء لـClaude API، بنفس فلسفة بقية الملف.
+# ---------------------------------------------------------------------------
+
+def test_cannot_upload_ocr_invoice_to_other_owners_store(two_owners):
+    d = two_owners
+    resp = client.post(
+        f"/stores/{d['store_b']}/invoices/ocr",
+        files=[("files", ("fake.jpg", b"not a real image", "image/jpeg"))],
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 404
+
+
+def test_can_upload_ocr_invoice_to_own_store(two_owners):
+    d = two_owners
+    resp = client.post(
+        f"/stores/{d['store_a']}/invoices/ocr",
+        files=[("files", ("fake.jpg", b"not a real image", "image/jpeg"))],
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "uploaded"
+
+
+def test_uploading_ocr_with_unsupported_extension_still_passes_ownership_check(two_owners):
+    """امتداد مرفوض (422) لا 404 — نفس منطق فحص امتداد إكسل بس لصور OCR."""
+    d = two_owners
+    resp = client.post(
+        f"/stores/{d['store_a']}/invoices/ocr",
+        files=[("files", ("fake.txt", b"not an image at all", "text/plain"))],
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 422
+
+
+def test_cannot_extract_ocr_for_other_owners_invoice(two_owners):
+    d = two_owners
+    resp = client.post(f"/invoices/{d['invoice_b']}/ocr-extract", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+def test_extracting_ocr_on_non_ocr_invoice_still_passes_ownership_check(two_owners):
+    """invoice_a من method=1 (إكسل) — 422 (نوع خاطئ) لا 404، يثبت إن الملكية مرّت."""
+    d = two_owners
+    resp = client.post(f"/invoices/{d['invoice_a']}/ocr-extract", headers=_auth(d["token_a"]))
+    assert resp.status_code == 422
+
+
+def test_cannot_confirm_ocr_for_other_owners_invoice(two_owners):
+    d = two_owners
+    resp = client.post(
+        f"/invoices/{d['invoice_b']}/ocr-confirm",
+        json={"items": [{"item_name": "صنف", "quantity": 1, "unit_cost": 1}]},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 404
+
+
+def test_confirming_ocr_on_non_ocr_invoice_still_passes_ownership_check(two_owners):
+    d = two_owners
+    resp = client.post(
+        f"/invoices/{d['invoice_a']}/ocr-confirm",
+        json={"items": [{"item_name": "صنف", "quantity": 1, "unit_cost": 1}]},
+        headers=_auth(d["token_a"]),
+    )
+    assert resp.status_code == 422

@@ -19,5 +19,10 @@ class Settings(BaseSettings):
     # لتخزين خارجي (S3-compatible) لاحقاً بدون تغيير أي كود يستدعي storage.py
     storage_dir: str = "./storage"
 
+    # استخراج فواتير الصور عبر Claude Vision — None لحد ما يُضاف المفتاح فعلياً بالاستضافة؛
+    # ocr_service يرفض بوضوح (503) لو الخدمة استُدعيت قبل توفّر المفتاح، بدل خطأ غامض
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-5"
+
 
 settings = Settings()

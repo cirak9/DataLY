@@ -112,6 +112,20 @@ export interface InventoryImportResult {
   lots_processed: number;
 }
 
+export interface OcrExtractedItem {
+  source_image: number;
+  item_name: string;
+  quantity: number;
+  unit_cost: number;
+  barcode: string | null;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface OcrExtractResponse {
+  invoice_id: number;
+  items: OcrExtractedItem[];
+}
+
 export const STATUS_LABELS: Record<InvoiceStatus, string> = {
   uploaded: "مرفوعة",
   cleaned: "منظّفة",

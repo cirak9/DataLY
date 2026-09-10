@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { api } from "../lib/api";
+import { Invoice, OcrExtractedItem, OcrExtractResponse } from "../lib/types";
 import Layout from "../components/Layout";
 
 type Confidence = "high" | "medium" | "low";
 
-interface OcrCandidateItem {
+interface ReviewItem {
   id: number;
   sourceImage: number;
   itemName: string;
@@ -14,37 +17,19 @@ interface OcrCandidateItem {
   confidence: Confidence;
 }
 
-// بيانات تجريبية فقط — تحاكي شكل مخرجات OCR (اسم + كمية + سعر + باركود اختياري،
-// مع درجة ثقة لكل صنف ورقم الصورة المصدر لدعم دمج عدة صور بفاتورة واحدة).
-// تُستبدل ببيانات حقيقية من POST /invoices/{id}/ocr-extract لما تُفعَّل خدمة Tesseract.
-const SAMPLE_ITEMS: OcrCandidateItem[] = [
-  { id: 1, sourceImage: 1, itemName: "زيت ذرة 1.5 لتر", quantity: 12, unitCost: 8.75, barcode: "6221031202019", confidence: "high" },
-  { id: 2, sourceImage: 1, itemName: "معجون طماطم 400غ", quantity: 24, unitCost: 2.4, barcode: "6221031202026", confidence: "high" },
-  { id: 3, sourceImage: 1, itemName: "أرز مصري كيس 5كغ", quantity: 6, unitCost: 21.5, barcode: "", confidence: "medium" },
-  { id: 4, sourceImage: 2, itemName: "سكر أبيض كيس 1كغ", quantity: 40, unitCost: 3.1, barcode: "6221031202033", confidence: "high" },
-  { id: 5, sourceImage: 2, itemName: "عدس أحمر1كغ", quantity: 18, unitCost: 4.65, barcode: "", confidence: "low" },
-  { id: 6, sourceImage: 2, itemName: "شاي أخضر ٥٠ ظرف", quantity: 10, unitCost: 6.2, barcode: "", confidence: "low" },
-];
-
 const CONFIDENCE_LABEL: Record<Confidence, string> = {
   high: "ثقة عالية",
   medium: "ثقة متوسطة",
   low: "تحتاج مراجعة",
 };
 
-// ألوان مصمَتة عالية التباين بدل الباستيل — الهدف إنها تُلتقط بنظرة عابرة
-// على جدول مزدحم، مو بس عند التركيز عليها.
 const CONFIDENCE_STYLE: Record<Confidence, string> = {
   high: "bg-emerald-600 text-white",
   medium: "bg-amber-500 text-white",
   low: "bg-red-600 text-white",
 };
 
-const CONFIDENCE_ICON: Record<Confidence, string> = {
-  high: "✓",
-  medium: "◐",
-  low: "⚠",
-};
+const CONFIDENCE_ICON: Record<Confidence, string> = { high: "✓", medium: "◐", low: "⚠" };
 
 function ConfidenceBadge({ level }: { level: Confidence }) {
   return (
@@ -55,50 +40,60 @@ function ConfidenceBadge({ level }: { level: Confidence }) {
   );
 }
 
-// صور إضافية وهمية تُضاف عند "أضف صورة" — تحاكي دمج أكثر من صورة فاتورة واحدة
-// بنفس المراجعة (نفس المشكلة الحقيقية: التاجر ياخذ عدة صور لفاتورة طويلة).
-const EXTRA_IMAGE_POOL: Omit<OcrCandidateItem, "id" | "sourceImage">[][] = [
-  [
-    { itemName: "زيت زيتون 1 لتر", quantity: 8, unitCost: 15, barcode: "6221031202040", confidence: "high" },
-    { itemName: "خل تفاح 500مل", quantity: 15, unitCost: 3.25, barcode: "", confidence: "medium" },
-  ],
-  [
-    { itemName: "طحين أبيض كيس 1كغ", quantity: 30, unitCost: 2.1, barcode: "6221031202057", confidence: "high" },
-    { itemName: "ملح طعام 500غ", quantity: 20, unitCost: 1, barcode: "", confidence: "low" },
-  ],
-  [
-    { itemName: "حليب مجفف 400غ", quantity: 12, unitCost: 9.4, barcode: "6221031202064", confidence: "high" },
-    { itemName: "قهوة تركية 200غ", quantity: 9, unitCost: 7.8, barcode: "", confidence: "medium" },
-  ],
-];
+function toReviewItems(items: OcrExtractedItem[]): ReviewItem[] {
+  return items.map((item, i) => ({
+    id: i + 1,
+    sourceImage: item.source_image,
+    itemName: item.item_name,
+    quantity: item.quantity,
+    unitCost: item.unit_cost,
+    barcode: item.barcode ?? "",
+    confidence: item.confidence,
+  }));
+}
 
-let nextId = 1000;
+let nextManualId = 100000;
 
-export default function OcrReviewPreview() {
-  const [items, setItems] = useState<OcrCandidateItem[]>(SAMPLE_ITEMS);
-  const [confirmed, setConfirmed] = useState(false);
+export default function OcrReview() {
+  const { invoiceId } = useParams();
+  const navigate = useNavigate();
+  const [items, setItems] = useState<ReviewItem[] | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  const imageNumbers = useMemo(
-    () => Array.from(new Set(items.map((i) => i.sourceImage).filter((n) => n > 0))).sort((a, b) => a - b),
+  const { data: invoice } = useQuery({
+    queryKey: ["invoice", invoiceId],
+    queryFn: async () => (await api.get<Invoice>(`/invoices/${invoiceId}`)).data,
+  });
+
+  const extract = useMutation({
+    mutationFn: async () => (await api.post<OcrExtractResponse>(`/invoices/${invoiceId}/ocr-extract`)).data,
+    onSuccess: (data) => setItems(toReviewItems(data.items)),
+  });
+
+  const confirm = useMutation({
+    mutationFn: () =>
+      api.post(`/invoices/${invoiceId}/ocr-confirm`, {
+        items: (items ?? []).map((i) => ({
+          item_name: i.itemName,
+          quantity: i.quantity,
+          unit_cost: i.unitCost,
+          barcode: i.barcode || null,
+        })),
+      }),
+    onSuccess: () => navigate(`/invoices/${invoiceId}/review`),
+    onError: (err: any) => setConfirmError(err?.response?.data?.detail ?? "تعذّر اعتماد الأصناف"),
+  });
+
+  const imageCount = useMemo(
+    () => (items ? new Set(items.map((i) => i.sourceImage).filter((n) => n > 0)).size : 0),
     [items]
   );
-  const totalValue = useMemo(() => items.reduce((sum, i) => sum + i.quantity * i.unitCost, 0), [items]);
-  const lowConfidenceCount = items.filter((i) => i.confidence === "low").length;
+  const totalValue = useMemo(() => (items ?? []).reduce((sum, i) => sum + i.quantity * i.unitCost, 0), [items]);
+  const lowConfidenceCount = (items ?? []).filter((i) => i.confidence === "low").length;
 
-  function addImage() {
-    const nextImage = imageNumbers.length ? Math.max(...imageNumbers) + 1 : 1;
-    const pool = EXTRA_IMAGE_POOL[(nextImage - 1) % EXTRA_IMAGE_POOL.length];
-    const newItems = pool.map((base) => ({ ...base, id: nextId++, sourceImage: nextImage }));
-    setItems((prev) => [...prev, ...newItems]);
-  }
-
-  function removeImage(imageNumber: number) {
-    setItems((prev) => prev.filter((i) => i.sourceImage !== imageNumber));
-  }
-
-  function updateField(id: number, field: keyof OcrCandidateItem, value: string) {
+  function updateField(id: number, field: "itemName" | "quantity" | "unitCost" | "barcode", value: string) {
     setItems((prev) =>
-      prev.map((item) => {
+      (prev ?? []).map((item) => {
         if (item.id !== id) return item;
         if (field === "quantity" || field === "unitCost") {
           const num = Number(value);
@@ -110,83 +105,58 @@ export default function OcrReviewPreview() {
   }
 
   function removeRow(id: number) {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    setItems((prev) => (prev ?? []).filter((i) => i.id !== id));
   }
 
   function addManualRow() {
     setItems((prev) => [
-      ...prev,
-      { id: nextId++, sourceImage: 0, itemName: "", quantity: 1, unitCost: 0, barcode: "", confidence: "high" },
+      ...(prev ?? []),
+      { id: nextManualId++, sourceImage: 0, itemName: "", quantity: 1, unitCost: 0, barcode: "", confidence: "high" },
     ]);
   }
 
-  const canConfirm = items.length > 0 && items.every((i) => i.itemName.trim() && i.quantity > 0 && i.unitCost >= 0);
+  const canConfirm = !!items?.length && items.every((i) => i.itemName.trim() && i.quantity > 0 && i.unitCost >= 0);
+
+  if (!invoice) return <Layout><p className="text-sm text-slate-500">...جار التحميل</p></Layout>;
 
   return (
     <Layout>
       <div className="mb-1 text-sm">
-        <Link to="/stores" className="text-slate-400 hover:text-slate-600">
-          المتاجر
+        <Link to={`/stores/${invoice.store_id}/invoices`} className="text-slate-400 hover:text-slate-600">
+          الفواتير
         </Link>
         <span className="mx-1.5 text-slate-300">/</span>
-        <span className="font-medium text-slate-600">معاينة شاشة المراجعة (OCR)</span>
+        <span className="font-medium text-slate-600">مراجعة استخراج OCR</span>
       </div>
 
-      <div className="mb-4 flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-ink">مراجعة الأصناف المستخرجة</h1>
-      </div>
+      <h1 className="mb-6 text-2xl font-bold text-ink">مراجعة الأصناف المستخرجة</h1>
 
-      <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-        🧪 معاينة تصميم — الأصناف تحت بيانات تجريبية تحاكي شكل مخرجات OCR، مو من فاتورة
-        حقيقية. هالشاشة بتُربط بخدمة استخراج النص (Tesseract) لما تُفعَّل بنيتها التحتية؛
-        الهدف الآن اختبار تجربة المراجعة والتعديل قبل الاعتماد — جرّب "أضف صورة" تحت
-        عشان تشوف كيف تنضم أصناف صورة ثانية لنفس المراجعة (دمج عدة صور بفاتورة واحدة).
-      </div>
-
-      {confirmed ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-8 text-center">
-          <p className="mb-2 text-lg font-bold text-emerald-800">تم الاعتماد ✓</p>
-          <p className="mx-auto max-w-md text-sm leading-relaxed text-emerald-700">
-            بالنسخة الحقيقية، هالخطوة بتحفظ الأصناف المعتمدة كـ invoice_items وتنقل حالة
-            الفاتورة إلى "منظّفة" — بنفس نقطة البداية اللي تدخل منها الآن بعد "نظّف
-            الفاتورة"، وتكمل بنفس المسار: جلسة استلام ← تسوية ← دمج ← تصدير.
-          </p>
+      {invoice.status !== "uploaded" ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-500">
+          هالفاتورة اتّعمدت مسبقاً أو تجاوزت مرحلة المراجعة.{" "}
+          <Link to={`/invoices/${invoice.id}/review`} className="font-medium text-brand-600 hover:underline">
+            روح لشاشة المراجعة العادية ←
+          </Link>
+        </div>
+      ) : items === null ? (
+        <div className="rounded-xl border border-dashed border-slate-300 py-16 text-center">
+          {extract.isError && (
+            <div className="mx-auto mb-4 max-w-md rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {(extract.error as any)?.response?.data?.detail ?? "فشل استخراج الأصناف من الصور"}
+            </div>
+          )}
           <button
-            onClick={() => setConfirmed(false)}
-            className="mt-4 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            onClick={() => extract.mutate()}
+            disabled={extract.isPending}
+            className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
           >
-            رجوع للمراجعة
+            {extract.isPending ? "...جار الاستخراج" : extract.isError ? "أعد المحاولة" : "ابدأ الاستخراج (OCR)"}
           </button>
         </div>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="ml-1 text-xs font-medium text-slate-500">صور الفاتورة:</span>
-            {imageNumbers.map((num) => (
-              <span
-                key={num}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600"
-              >
-                📷 صورة {num}
-                <button
-                  onClick={() => removeImage(num)}
-                  className="text-slate-300 transition hover:text-red-500"
-                  aria-label={`إزالة صورة ${num}`}
-                  title="إزالة هالصورة وكل الأصناف المستخرجة منها"
-                >
-                  ✕
-                </button>
-              </span>
-            ))}
-            <button
-              onClick={addImage}
-              className="rounded-full border border-dashed border-brand-300 px-3 py-1 text-xs font-semibold text-brand-600 transition hover:border-brand-500 hover:bg-brand-50"
-            >
-              + أضف صورة
-            </button>
-          </div>
-
           <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span className="rounded-full bg-slate-100 px-3 py-1">📷 {imageCount} صورة مصدر</span>
             <span className="rounded-full bg-slate-100 px-3 py-1">{items.length} صنف</span>
             {lowConfidenceCount > 0 && (
               <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-red-700">
@@ -195,14 +165,18 @@ export default function OcrReviewPreview() {
             )}
           </div>
 
+          {confirmError && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {confirmError}
+            </div>
+          )}
+
           {/* بطاقات للموبايل */}
           <div className="flex flex-col gap-3 sm:hidden">
             {items.map((item) => (
               <div
                 key={item.id}
-                className={`rounded-xl border bg-white p-4 ${
-                  item.confidence === "low" ? "border-red-200" : "border-slate-200"
-                }`}
+                className={`rounded-xl border bg-white p-4 ${item.confidence === "low" ? "border-red-200" : "border-slate-200"}`}
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <input
@@ -221,9 +195,7 @@ export default function OcrReviewPreview() {
                 </div>
                 <div className="mb-3 flex items-center gap-2">
                   <ConfidenceBadge level={item.confidence} />
-                  {item.sourceImage > 0 && (
-                    <span className="text-[11px] text-slate-400">من الصورة {item.sourceImage}</span>
-                  )}
+                  {item.sourceImage > 0 && <span className="text-[11px] text-slate-400">من الصورة {item.sourceImage}</span>}
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <label className="rounded-lg bg-slate-50 py-2">
@@ -277,12 +249,7 @@ export default function OcrReviewPreview() {
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr
-                    key={item.id}
-                    className={`border-b border-slate-100 last:border-0 ${
-                      item.confidence === "low" ? "bg-red-50/40" : ""
-                    }`}
-                  >
+                  <tr key={item.id} className={`border-b border-slate-100 last:border-0 ${item.confidence === "low" ? "bg-red-50/40" : ""}`}>
                     <td className="min-w-[200px] px-1 py-1">
                       <input
                         value={item.itemName}
@@ -354,11 +321,11 @@ export default function OcrReviewPreview() {
               )}
             </div>
             <button
-              onClick={() => setConfirmed(true)}
-              disabled={!canConfirm}
+              onClick={() => confirm.mutate()}
+              disabled={!canConfirm || confirm.isPending}
               className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              اعتماد ودخول للمعالجة ←
+              {confirm.isPending ? "...جار الاعتماد" : "اعتماد ودخول للمعالجة ←"}
             </button>
           </div>
         </>

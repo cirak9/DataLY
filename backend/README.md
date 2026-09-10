@@ -104,6 +104,10 @@ POST   /invoices/{id}/clean                                 تنظيف + تصن�
 GET    /invoices/{id}/items                                  أصناف الفاتورة
 PATCH  /invoices/{id}/items/{item_id}                          تعديل صنف يدوياً
 
+POST   /stores/{store_id}/invoices/ocr                    رفع فاتورة بصورة/عدة صور (method=3)
+POST   /invoices/{id}/ocr-extract                           استخراج الأصناف عبر Claude Vision (بدون حفظ)
+POST   /invoices/{id}/ocr-confirm                            اعتماد الأصناف المراجَعة → invoice_items + cleaned
+
 POST   /invoices/{id}/session                                   إنشاء جلسة استلام
 GET    /sessions/{id}                                             حالة الجلسة + الأصناف
 PATCH  /sessions/{id}/items/{item_id}                               تعبئة باركود/صلاحية/سعر
@@ -155,7 +159,10 @@ GET    /invoices/{id}/export/download                                      تن�
   فريد اختياري للحسابات الجديدة. توكن JWT مبني على `user.id` مو البريد/الهاتف (يشتغل
   بغض النظر عن طريقة التسجيل، وما ينكسر لو المستخدم غيّر بريده لاحقاً). التسجيل ينشئ
   متجر مملوك للحساب الجديد بنفس اللحظة، ويرجّع توكن جاهز — دخول تلقائي بلا خطوة منفصلة.
-- **OCR (Tesseract) مؤجَّل بانتظار خدمة Render بـDocker منفصلة** — `backend/Dockerfile`
-  جاهز، لكن الخدمة الحية الحالية `dataly-backend` native (Python 3 buildpack) ولا
-  تدعم تثبيت حزم نظام زي `tesseract-ocr`. الخطة: خدمة Docker جديدة معزولة تماماً عن
-  الحية، تُختبر لحالها، وبعدها يتبدّل `VITE_API_URL` بالواجهة إليها.
+- **OCR عبر Claude Vision، لا Tesseract** — جُرِّب مسار Tesseract أولاً (يحتاج حزمة
+  نظام، والخدمة الحية native ما تدعمها إلا بخدمة Docker منفصلة) لكن أُلغي؛ الخطة
+  الأصلية (Claude API) أبسط بنيوياً — استدعاء HTTP عادي، يشتغل على نفس الخدمة
+  الحالية بدون Docker ولا أي تغيير بنية. الكود كامل وجاهز (`POST
+  /stores/{id}/invoices/ocr` → `POST /invoices/{id}/ocr-extract` → مراجعة/تعديل
+  بالواجهة → `POST /invoices/{id}/ocr-confirm`)، بس `ANTHROPIC_API_KEY` لسا مو
+  مُعدّ — `ocr-extract` يرجّع 503 واضح لحد ما يُضاف يدوياً بإعدادات Render.

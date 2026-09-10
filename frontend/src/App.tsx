@@ -10,7 +10,8 @@ import InvoiceReconciliation from "./pages/InvoiceReconciliation";
 import InvoiceExport from "./pages/InvoiceExport";
 import Inventory from "./pages/Inventory";
 import InvoiceHistory from "./pages/InvoiceHistory";
-import OcrReviewPreview from "./pages/OcrReviewPreview";
+import OcrUpload from "./pages/OcrUpload";
+import OcrReview from "./pages/OcrReview";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -55,8 +56,12 @@ function Routed() {
         element={<ProtectedRoute><InvoiceExport /></ProtectedRoute>}
       />
       <Route
-        path="/ocr-preview"
-        element={<ProtectedRoute><OcrReviewPreview /></ProtectedRoute>}
+        path="/stores/:storeId/invoices/ocr-upload"
+        element={<ProtectedRoute><OcrUpload /></ProtectedRoute>}
+      />
+      <Route
+        path="/invoices/:invoiceId/ocr-review"
+        element={<ProtectedRoute><OcrReview /></ProtectedRoute>}
       />
 
       <Route path="/" element={<Navigate to="/stores" replace />} />

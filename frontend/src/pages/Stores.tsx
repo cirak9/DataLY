@@ -43,13 +43,6 @@ export default function Stores() {
         </button>
       </div>
 
-      <Link
-        to="/ocr-preview"
-        className="mb-6 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-brand-400 hover:text-brand-600"
-      >
-        🧪 معاينة: شاشة مراجعة/اعتماد OCR (تجريبي)
-      </Link>
-
       {showForm && (
         <form
           onSubmit={handleSubmit}

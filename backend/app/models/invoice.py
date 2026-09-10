@@ -23,7 +23,7 @@ class Invoice(Base):
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), nullable=True)
     supplier_name_raw: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    # 1 = طريقة يدوية (بدون مخزون مورد)، 2 = إثراء من مخزون مورد — راجع fusion/method_router.py الحالي
+    # 1 = طريقة يدوية (بدون مخزون مورد)، 2 = إثراء من مخزون مورد، 3 = صور OCR (Claude Vision)
     method: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # uploaded -> cleaned -> session_pending -> session_complete -> reconciled -> merged -> exported
@@ -35,7 +35,7 @@ class Invoice(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    __table_args__ = (CheckConstraint("method IN (1, 2)", name="ck_invoice_method"),)
+    __table_args__ = (CheckConstraint("method IN (1, 2, 3)", name="ck_invoice_method"),)
 
     items: Mapped[list["InvoiceItem"]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan", order_by="InvoiceItem.item_order"

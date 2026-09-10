@@ -92,17 +92,25 @@ export default function Invoices() {
               السجل
             </Link>
           </div>
-          <label className="cursor-pointer whitespace-nowrap rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700">
-            {upload.isPending ? "...جار الرفع" : "+ رفع فاتورة"}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileChange}
-              disabled={upload.isPending}
-              className="hidden"
-            />
-          </label>
+          <div className="flex items-center gap-2">
+            <Link
+              to={`/stores/${storeId}/invoices/ocr-upload`}
+              className="whitespace-nowrap rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+            >
+              📷 رفع بالصور (OCR)
+            </Link>
+            <label className="cursor-pointer whitespace-nowrap rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700">
+              {upload.isPending ? "...جار الرفع" : "+ رفع فاتورة"}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileChange}
+                disabled={upload.isPending}
+                className="hidden"
+              />
+            </label>
+          </div>
         </div>
       </div>
 
