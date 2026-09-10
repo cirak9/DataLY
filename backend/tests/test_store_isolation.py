@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.core.db import Base, get_db
 from app.core.security import hash_password
 from app.main import app
+from app.models.export import AlsahlExport
 from app.models.invoice import Invoice, InvoiceItem
 from app.models.reconciliation import ReconciliationMatch
 from app.models.session import IntakeSession, SessionItem
@@ -111,6 +112,14 @@ def two_owners():
         db.commit()
         db.refresh(match_a)
         db.refresh(match_b)
+
+        # سجل تصدير جاهز لفاتورة أ بس — يتيح اختبار تنزيل ناجح لصاحبها الحقيقي
+        # (بدون الحاجة لتمرير الفاتورة فعلياً بكل حالات خط الأنابيب أولاً؛ build_export_bytes
+        # يبني الملف من الصفوف الموجودة مباشرة، بغض النظر عن حالة الفاتورة).
+        export_a = AlsahlExport(invoice_id=invoice_a.id, file_path="/tmp/unused.xlsx")
+        db.add(export_a)
+        db.commit()
+        db.refresh(export_a)
 
         token_a = client.post(
             "/auth/login", json={"email": user_a.email, "password": "pass-a-123"}
@@ -286,3 +295,51 @@ def test_can_decide_own_reconciliation_match(two_owners):
     )
     assert resp.status_code == 200
     assert resp.json()["decision"] == "rejected"
+
+
+# ---------------------------------------------------------------------------
+# الدمج والتصدير — نفس get_owned_invoice، بس على نقاط API مختلفة (مسارات منفصلة
+# فعلياً بالكود، لازم كل وحدة تتحقق لحالها لضمان محد يفوّت التحقق مستقبلاً).
+# الفاتورتان بحالة "uploaded" بالفكستشر — أبعد ما يكون عن reconciled/merged،
+# فلو التحقق من الملكية فشل بالغلط بيرجّع 404 مباشرة قبل أي فحص حالة؛ لو نجح
+# ووصل لمنطق العمل، يرجّع 422 (حالة غلط) مو 404 — هذا الفرق (404 مقابل 422)
+# هو دليل إن التحقق من الملكية هو اللي سمح/منع الوصول، مو صدفة.
+# ---------------------------------------------------------------------------
+
+def test_cannot_merge_other_owners_invoice(two_owners):
+    d = two_owners
+    resp = client.post(f"/invoices/{d['invoice_b']}/merge", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+def test_merging_own_invoice_passes_ownership_check(two_owners):
+    d = two_owners
+    resp = client.post(f"/invoices/{d['invoice_a']}/merge", headers=_auth(d["token_a"]))
+    assert resp.status_code == 422  # حالة الفاتورة "uploaded" مو "reconciled" — خطأ عمل، مو ملكية
+
+
+def test_cannot_export_other_owners_invoice(two_owners):
+    d = two_owners
+    resp = client.post(f"/invoices/{d['invoice_b']}/export", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+def test_exporting_own_invoice_passes_ownership_check(two_owners):
+    d = two_owners
+    resp = client.post(f"/invoices/{d['invoice_a']}/export", headers=_auth(d["token_a"]))
+    assert resp.status_code == 422  # حالة الفاتورة "uploaded" مو ضمن merged/exported — خطأ عمل، مو ملكية
+
+
+def test_cannot_download_other_owners_export(two_owners):
+    d = two_owners
+    resp = client.get(f"/invoices/{d['invoice_b']}/export/download", headers=_auth(d["token_a"]))
+    assert resp.status_code == 404
+
+
+def test_can_download_own_export(two_owners):
+    d = two_owners
+    resp = client.get(f"/invoices/{d['invoice_a']}/export/download", headers=_auth(d["token_a"]))
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
