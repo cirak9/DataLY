@@ -18,6 +18,14 @@ JWT_SECRET=<سلسلة عشوائية طويلة>
 CORS_ORIGINS=["https://<رابط-الواجهة-على-Vercel>"]
 ```
 
+- **شاشة إدارة التصنيفات تضيف طبقة فوق `categorizer.py`، ما تستبدلها** — خوارزمية
+  التخمين الأصلية (`category_keywords`/`categories_seed.json` الثابت، fuzzy matching
+  المضبوط بعناية) تبقى بلا أي تعديل. الكلمات المفتاحية اللي تُضاف من `/categories`
+  تُفحص بمطابقة بسيطة (بدون fuzzy) بـ`catalog_service._match_manual_keyword()` قبل
+  التخمين التلقائي مباشرة — تصحيح يدوي صريح يفوز على تخمين عام، بس بعد أولوية
+  الباركود. القرار: تعديل الخوارزمية المضبوطة فعلياً (34 اختبار عليها بالأداة
+  الأصلية) أخطر من إضافة طبقة override بسيطة فوقها.
+
 **⚠️ الهجرات (migrations) ما تُطبَّق تلقائياً — لازم يدوياً بعد كل نشرة تغيّر الجدول:**
 خدمة Render المجانية ما تدعم Pre-Deploy Command (ميزة مدفوعة)، فـ`alembic upgrade
 head` مو جزء من الـStart Command. أي هجرة جديدة تحتاج تشغيل يدوي مرة وحدة بعد
@@ -102,6 +110,10 @@ GET    /auth/me                                         بيانات المست�
 
 GET/POST  /stores                                       المتاجر
 GET/POST  /suppliers                                     الموردون
+GET/POST  /categories                                    التصنيفات وكلماتها المفتاحية
+POST      /categories/{id}/keywords                        إضافة كلمة مفتاحية لتصنيف
+DELETE    /categories/{id}/keywords/{keyword_id}             حذف كلمة مفتاحية
+DELETE    /categories/{id}                                    حذف تصنيف (لو غير مستخدَم)
 
 GET    /stores/{store_id}/inventory                       مخزون المتجر التراكمي
 POST   /stores/{store_id}/inventory/import                 استيراد/تحديث مخزون قديم (xlsx)

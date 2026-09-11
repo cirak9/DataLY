@@ -19,6 +19,7 @@ from app.models.reconciliation import ReconciliationMatch
 from app.models.session import IntakeSession, SessionItem
 from app.models.store import Store
 from app.models.user import User
+from app.services import catalog_service
 
 """
 عزل بيانات العملاء — يعيد بالتحديد نفس خطوات التحقق الحي اللي صارت يدوياً بـcurl
@@ -61,6 +62,24 @@ client = TestClient(app)
 
 def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
+
+
+_token_counter = 0
+
+
+def _any_token() -> str:
+    """توكن لمستخدم عشوائي جديد — لاختبارات لا تحتاج فحص ملكية (تصنيفات مشتركة)."""
+    global _token_counter
+    _token_counter += 1
+    resp = client.post(
+        "/auth/register",
+        json={
+            "store_name": f"متجر عشوائي {_token_counter}",
+            "phone_number": f"099{_token_counter:07d}",
+            "password": "secret123",
+        },
+    )
+    return resp.json()["access_token"]
 
 
 @pytest.fixture
@@ -652,3 +671,103 @@ def test_confirming_ocr_on_non_ocr_invoice_still_passes_ownership_check(two_owne
         headers=_auth(d["token_a"]),
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# إدارة التصنيفات — /categories مشترك عمداً بين كل الحسابات، بلا owner_id، نفس
+# فلسفة /suppliers فوق. الأهم: التحقق إن كلمة مفتاحية مُضافة من هالشاشة فعلاً تأثّر
+# على تصنيف صنف حقيقي بفاتورة (مو مجرد CRUD تجميلي بلا أثر على منطق العمل).
+# ---------------------------------------------------------------------------
+
+def test_category_created_by_one_owner_is_visible_to_another(two_owners):
+    d = two_owners
+    created = client.post(
+        "/categories", json={"main": "قسم اختبار", "sub": "فرعي اختبار"}, headers=_auth(d["token_a"])
+    )
+    assert created.status_code == 201
+    category_id = created.json()["id"]
+
+    listed_by_b = client.get("/categories", headers=_auth(d["token_b"])).json()
+    assert any(c["id"] == category_id for c in listed_by_b)
+
+
+def test_cannot_create_duplicate_category():
+    client.post("/categories", json={"main": "قسم مكرر", "sub": "فرعي مكرر"}, headers=_auth(_any_token()))
+    resp = client.post(
+        "/categories", json={"main": "قسم مكرر", "sub": "فرعي مكرر"}, headers=_auth(_any_token())
+    )
+    assert resp.status_code == 422
+
+
+def test_categories_endpoints_require_auth():
+    assert client.get("/categories").status_code == 401
+    assert client.post("/categories", json={"main": "أ", "sub": "ب"}).status_code == 401
+
+
+def test_can_add_and_remove_keyword(two_owners):
+    d = two_owners
+    category = client.post(
+        "/categories", json={"main": "قسم كلمات", "sub": "فرعي كلمات"}, headers=_auth(d["token_a"])
+    ).json()
+
+    added = client.post(
+        f"/categories/{category['id']}/keywords",
+        json={"keyword": "كلمة-اختبار-فريدة", "is_whole_word": True},
+        headers=_auth(d["token_a"]),
+    )
+    assert added.status_code == 201
+    assert len(added.json()["keywords"]) == 1
+    keyword_id = added.json()["keywords"][0]["id"]
+
+    removed = client.delete(
+        f"/categories/{category['id']}/keywords/{keyword_id}", headers=_auth(d["token_a"])
+    )
+    assert removed.status_code == 204
+
+    refreshed = client.get("/categories", headers=_auth(d["token_a"])).json()
+    refreshed_category = next(c for c in refreshed if c["id"] == category["id"])
+    assert refreshed_category["keywords"] == []
+
+
+def test_can_delete_unused_category(two_owners):
+    d = two_owners
+    category_id = client.post(
+        "/categories", json={"main": "قسم غير مستخدَم", "sub": "فرعي غير مستخدَم"}, headers=_auth(d["token_a"])
+    ).json()["id"]
+
+    resp = client.delete(f"/categories/{category_id}", headers=_auth(d["token_a"]))
+    assert resp.status_code == 204
+
+
+def test_deleting_nonexistent_category_returns_404():
+    resp = client.delete("/categories/999999", headers=_auth(_any_token()))
+    assert resp.status_code == 404
+
+
+# ملاحظة: حذف تصنيف مستخدَم فعلياً (يُتوقَّع 422 عبر IntegrityError) يعتمد على قيد
+# ON DELETE الافتراضي (RESTRICT) اللي Postgres يفرضه — SQLite ما يفعّل فحص المفاتيح
+# الأجنبية افتراضياً (نفس القيد الموثَّق فوق لمسارات الدمج/الاستيراد الأخرى)، فالحذف
+# ينجح بصمت هون بدل ما يرفض. اتحقَّق حياً ضد Supabase الحقيقية بدل اختبار آلي.
+
+
+def test_manual_keyword_actually_changes_real_item_categorization(two_owners):
+    """الأهم: كلمة مفتاحية مُضافة من الشاشة تؤثّر فعلياً على get_category_id،
+    مو بس تُحفظ بجدول بلا استخدام."""
+    d = two_owners
+    target_category = client.post(
+        "/categories", json={"main": "قسم يدوي", "sub": "فرعي يدوي"}, headers=_auth(d["token_a"])
+    ).json()
+    unique_keyword = "منتج-فريد-جداً-٩٩٩"
+    client.post(
+        f"/categories/{target_category['id']}/keywords",
+        json={"keyword": unique_keyword, "is_whole_word": False},
+        headers=_auth(d["token_a"]),
+    )
+
+    db = TestingSessionLocal()
+    try:
+        category_id = catalog_service.get_category_id(db, f"{unique_keyword} 500غ")
+    finally:
+        db.close()
+
+    assert category_id == target_category["id"]

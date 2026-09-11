@@ -15,12 +15,17 @@ export default function Layout({ children }: { children: ReactNode }) {
             </span>
             <span className="text-lg font-bold text-ink">DataLY</span>
           </Link>
-          <button
-            onClick={logout}
-            className="text-sm font-medium text-slate-500 transition hover:text-slate-800"
-          >
-            تسجيل الخروج
-          </button>
+          <div className="flex items-center gap-4">
+            <Link to="/categories" className="text-sm font-medium text-slate-500 transition hover:text-slate-800">
+              التصنيفات
+            </Link>
+            <button
+              onClick={logout}
+              className="text-sm font-medium text-slate-500 transition hover:text-slate-800"
+            >
+              تسجيل الخروج
+            </button>
+          </div>
         </div>
       </header>
 

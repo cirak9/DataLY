@@ -105,6 +105,20 @@ export interface InventoryLot {
   quantity: number | null;
   unit_cost: number | null;
   updated_at: string;
+  category: CategoryOut | null;
+}
+
+export interface Keyword {
+  id: number;
+  keyword: string;
+  is_whole_word: boolean;
+}
+
+export interface CategoryWithKeywords {
+  id: number;
+  main: string;
+  sub: string;
+  keywords: Keyword[];
 }
 
 export interface InventoryImportResult {

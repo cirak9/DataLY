@@ -2,6 +2,8 @@ from datetime import datetime, date
 
 from pydantic import BaseModel
 
+from app.schemas.invoice import CategoryOut
+
 
 class InventoryLotOut(BaseModel):
     id: int
@@ -11,6 +13,7 @@ class InventoryLotOut(BaseModel):
     quantity: float | None
     unit_cost: float | None
     updated_at: datetime
+    category: CategoryOut | None = None
 
     model_config = {"from_attributes": True}
 

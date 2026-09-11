@@ -12,6 +12,7 @@ import Inventory from "./pages/Inventory";
 import InvoiceHistory from "./pages/InvoiceHistory";
 import OcrUpload from "./pages/OcrUpload";
 import OcrReview from "./pages/OcrReview";
+import Categories from "./pages/Categories";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -62,6 +63,10 @@ function Routed() {
       <Route
         path="/invoices/:invoiceId/ocr-review"
         element={<ProtectedRoute><OcrReview /></ProtectedRoute>}
+      />
+      <Route
+        path="/categories"
+        element={<ProtectedRoute><Categories /></ProtectedRoute>}
       />
 
       <Route path="/" element={<Navigate to="/stores" replace />} />

@@ -1,9 +1,10 @@
 from datetime import datetime, date
 
 from sqlalchemy import String, Text, Numeric, Date, DateTime, ForeignKey, Index, text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+from app.models.invoice import InvoiceItem  # noqa: F401 — لازم للـrelationship تحت
 
 
 class InventoryLot(Base):
@@ -36,3 +37,14 @@ class InventoryLot(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    last_invoice_item: Mapped["InvoiceItem | None"] = relationship(lazy="joined")
+
+    @property
+    def category(self):
+        """
+        تصنيف اللوت مُشتق من آخر صنف فاتورة حدّثه — لا عمود category_id مباشر بهالجدول
+        (اللوت بديل old_inventory.xlsx المسطّح أصلاً). يتيح فلترة شاشة المخزون بالتصنيف
+        بدون تكرار بيانات التصنيف بكل لوت.
+        """
+        return self.last_invoice_item.category if self.last_invoice_item else None
